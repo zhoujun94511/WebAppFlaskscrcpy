@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Scrcpy Control Panel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/static/wcss/style.css">
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1><span style="font-weight:600;">📱 Scrcpy 控制台</span></h1>
+    </header>
+    <section class="device-section">
+        <div class="device-row">
+            <label for="device-select">设备:</label>
+            <select id="device-select"></select>
+            <button id="refresh-devices" title="刷新设备列表">⟳</button>
+            <button id="start-stream">开始推流</button>
+            <button id="stop-stream">停止推流</button>
+        </div>
+        <div id="device-tip" class="device-tip" style="display:none;">
+            <span class="tip-icon">⚠️</span> 未检测到可用设备，请连接手机并打开ADB调试
+        </div>
+    </section>
+    <section class="screen-section">
+        <div class="screen-area">
+            <img id="scrcpy-img" draggable="false" src="/static/wcss/placeholder-mobile.svg" alt="设备画面" />
+        </div>
+    </section>
+    <section class="actions-section">
+        <input id="inputbox" type="text" placeholder="输入文本后回车发送到手机" autocomplete="off" />
+        <button id="get-clipboard" title="获取手机剪贴板">📋</button>
+        <button id="expand-noti" title="展开通知栏">🔔</button>
+        <button id="collapse-panels" title="收起面板">⬆</button>
+        <button id="rotate" title="旋转屏幕">⟳</button>
+    </section>
+    <section class="clipboard-section">
+        <pre id="clipboard-content" placeholder="剪贴板内容..."></pre>
+    </section>
+</div>
+<script src="/static/wjss/socket.io.js"></script>
+<script src="/static/wjss/scrcpy_control.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+<svg width="120" height="240" viewBox="0 0 120 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="12" y="8" width="96" height="224" rx="16" fill="#E8EAF0" stroke="#C9CED6" stroke-width="3"/>
+<rect x="28" y="32" width="64" height="160" rx="8" fill="#F4F5F8"/>
+<circle cx="60" cy="208" r="8" fill="#C9CED6"/>
+<rect x="50" y="18" width="20" height="5" rx="2.5" fill="#C9CED6"/>
+<text x="60" y="120" text-anchor="middle" fill="#B0B5BD" font-size="13" font-family="Segoe UI,Arial" dy=".3em">无画面</text>
+</svg>
