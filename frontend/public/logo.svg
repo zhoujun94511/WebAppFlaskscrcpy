@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="WebAppFlaskScrcpy">
+  <defs>
+    <linearGradient id="wafsBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- App tile -->
+  <rect x="16" y="16" width="224" height="224" rx="52" fill="url(#wafsBg)"/>
+
+  <!-- Mirrored device -->
+  <rect x="86" y="50" width="84" height="156" rx="18"
+        fill="#ffffff" fill-opacity="0.12" stroke="#ffffff" stroke-width="8"/>
+  <!-- front camera dot -->
+  <circle cx="128" cy="66" r="3.5" fill="#ffffff"/>
+
+  <!-- Cast / mirror glyph anchored in the screen's lower-left corner -->
+  <g fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round">
+    <path d="M108 168 a14 14 0 0 1 14 14"/>
+    <path d="M108 150 a32 32 0 0 1 32 32"/>
+  </g>
+  <circle cx="108" cy="182" r="5.5" fill="#ffffff"/>
+</svg>
