@@ -267,13 +267,17 @@ async function onSubmit() {
   font-size: 0.9rem;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.auth-tabs button:hover {
+.auth-tabs button:hover:not(.active) {
   color: var(--text-strong);
 }
+/* Active = primary tint, matching this app's own selected convention
+   (.device-strip-item.active / .device-picker-option.active). The previous
+   panel-bg pill was nearly identical to the surface-input track (both ~white),
+   so the selection only registered via a faint shadow and read as ambiguous. */
 .auth-tabs button.active {
-  background: var(--panel-bg);
+  background: var(--primary-ring);
   color: var(--text-strong);
-  box-shadow: var(--shadow-soft);
+  box-shadow: inset 0 0 0 1px var(--primary-border);
 }
 
 .auth-form {

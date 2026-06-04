@@ -1,10 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="WebAppFlaskScrcpy" fill="none" stroke="currentColor">
-  <!-- Single-colour mark (inherits currentColor) for use on any background. -->
-  <rect x="86" y="50" width="84" height="156" rx="18" stroke-width="10"/>
-  <circle cx="128" cy="66" r="4" fill="currentColor" stroke="none"/>
-  <g stroke-width="10" stroke-linecap="round">
-    <path d="M108 168 a14 14 0 0 1 14 14"/>
-    <path d="M108 148 a34 34 0 0 1 34 34"/>
+  <!-- Single-colour mark (inherits currentColor) for use on any background:
+       a device showing the Android robot. Matches public/logo.svg. -->
+  <rect x="74" y="34" width="108" height="188" rx="27.2" stroke-width="11"/>
+  <rect x="108.8" y="53.6" width="38.4" height="9.2" rx="4.6" fill="currentColor" stroke="none" opacity="0.6"/>
+  <g stroke-width="9" stroke-linecap="round">
+    <line x1="110" y1="126" x2="101" y2="107"/>
+    <line x1="146" y1="126" x2="155" y2="107"/>
   </g>
-  <circle cx="108" cy="182" r="6" fill="currentColor" stroke="none"/>
+  <path d="M94 154 a34 34 0 0 1 68 0 Z" fill="currentColor" stroke="none"/>
 </svg>
