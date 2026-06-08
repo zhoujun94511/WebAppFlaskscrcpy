@@ -144,3 +144,20 @@ def dispatch(
                     )
     except (KeyError, ValueError, TypeError, AttributeError) as exc:
         _log.warning('input dispatch error (%s): %s', t, exc)
+
+    # ── experimental master→slave sync fan-out (lab feature) ─────────────
+    # Mirror this event to any slave devices bound to ``device_id`` as a
+    # sync-group master. This is intentionally OUTSIDE the master's own
+    # control path and wrapped so that ANY failure here (or in the sync
+    # package) degrades to "not mirrored" — it can never disturb the
+    # master device's control above. Disabled unless ENABLE_SYNC=1, in
+    # which case the lazy import keeps this module dependency-free for
+    # unit tests and for the common (feature-off) case.
+    if device_id and t in ('touch', 'key', 'scroll', 'text', 'swipe'):
+        try:
+            from services import sync as _sync
+            if _sync.is_enabled():
+                from services.sync import sync_dispatcher
+                sync_dispatcher.fanout(device_id, t, evt)
+        except Exception as sync_exc:  # noqa: BLE001 — never break master input
+            _log.debug('sync fan-out skipped (%s): %s', t, sync_exc)

@@ -9,6 +9,12 @@ import {
 import { io } from "socket.io-client";
 import { useWebRTC } from "./composables/useWebRTC";
 import { startStreamQuality } from "./composables/useStreamQuality";
+import { isSyncSlave } from "./composables/useSync";
+
+// Input event types suppressed on a device that is currently a sync SLAVE
+// (it's driven by its master server-side). System/control events are not here
+// so they keep working on slaves.
+const _SYNC_BLOCKED_TYPES = new Set(["touch", "scroll", "key", "text"]);
 
 // One-shot per JS module load. Survives Vue re-mounts within the same
 // page (HMR resets the module → new BOOT_ID, which is exactly the
@@ -336,6 +342,11 @@ export function useScrcpySession() {
     // this — without a real success signal they'd burn their local
     // cooldown on dropped messages.
     if (!deviceId) return false;
+    // Sync lab feature: a device acting as a SLAVE is mirror-driven by its
+    // master server-side, so manual input on its card is suppressed to keep
+    // the mirror clean. Only user-input events are blocked — control/system
+    // events (keyframe requests, clipboard, power, rotate) still pass.
+    if (_SYNC_BLOCKED_TYPES.has(type) && isSyncSlave(deviceId)) return false;
     const peer = rtc.getPeer(deviceId);
     if (!peer || peer.connectionState.value !== "connected") return false;
     const dcEvent = toDataChannelEvent(type, payload);

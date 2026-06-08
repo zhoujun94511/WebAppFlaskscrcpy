@@ -26,6 +26,8 @@ Unlike vanilla scrcpy, all three **data planes** — video, input, files — run
 
 On top of mirroring, the platform ships a full **account system** and a **device reservation (occupancy)** mechanism, turning shared real devices into schedulable, auditable resources: you can see who holds which device, and admins can force-release devices and manage users.
 
+The platform also ships a **Lab** module (sidebar entry "Lab") that offers **master→slave multi-device sync**: drive one master and have any number of slaves follow along — either by **proportional coordinate mirroring**, or **semantically** via uiautomator2 (the master's tap is resolved to a control by `resourceId` / `text` / `xpath`, slaves locate the same control and click; failure transparently falls back to coordinates). Useful for multi-device regression, batch demos, compatibility cross-checks, etc.
+
 ## Screenshots
 
 <div align="center">
@@ -111,6 +113,36 @@ SQLite (accounts/sessions/reservations)    Android device (USB/TCP)
 - Every release runs `_teardown`: stop the scrcpy client → close all WebRTC peers for that device → broadcast `device_released`, so a released device is genuinely free.
 - **Three-plane gating**: HTTP (`_require_owner` in `api/devices.py`), WebRTC (`webrtc:offer`) and terminal (`terminal:open`) all call `reservations.assert_owner` — guarding only HTTP would be bypassable via the other two planes.
 
+### 🧪 Lab · Multi-device sync — implementation notes
+
+**Architecture stance**: fully pluggable, purely additive. The backend blueprint is only registered when `config.ENABLE_SYNC=True`; the data plane (input fan-out) is wired into `services/scrcpy_input.dispatch()` with a **defensive try/except**, so any failure there can never disturb the master's own control path.
+
+**Data-plane injection point**: `services/scrcpy_input.dispatch()` — the single funnel through which every WebRTC `input` DataChannel event passes. We hook fan-out at its tail (`if config.ENABLE_SYNC: sync_dispatcher.fanout(...)`). The two HTTP-based controls (quick keyevents, directional swipes) get the same defensive fan-out hook at their corresponding `api/devices.py` route tails.
+
+**Occupancy bypass**: group creation calls `reservations.claim(..., allow_multi=True)` — the **only** additive bypass of the "one-device-per-user" anti-hogging rule (the parameter defaults to `False`, so every existing call site behaves exactly as before). Dissolving a group releases the slaves the same way.
+
+**Two sync modes**:
+- **Coordinate**: fan-out maps `master_resolution → slave_resolution` proportionally and injects via `scrcpy.control.touch/swipe/text/keycode`. Fast path runs inline on the aiortc loop thread (single socket write); swipe is offloaded to a worker.
+- **Semantic** (built on uiautomator2 v3): on touch-up, `semantic_event_builder.build_tap()` calls `dump_hierarchy()` on the master to reverse-look-up the control under the point; each slave is then matched in order **resourceId → resourceId+text → text → description → xpath** and clicked; any miss falls back to coordinate. The whole semantic path is offloaded to a worker thread (master `dump_hierarchy` is too slow for the aiortc loop). u2 v3 launches its bundled `u2.jar` via `app_process` as a transient process — **NOT a persistently installed app**, so device-side footprint is much smaller than v2's atx-agent.
+
+**Concurrency safety (multi-user scenarios)**:
+- u2's jsonrpc connection isn't thread-safe → `u2_pool.device_lock(serial)` provides a **per-device RLock**, serialising u2 calls on the same device while different devices stay fully parallel.
+- Each worker thread re-validates **before** touching every slave: group still exists & enabled + slave still a member + **slave still reserved by the group owner**. This closes the race "device was force-released / expired but an in-flight worker still pokes the now-foreign device."
+- Semantic taps are **single-flight + 250 ms throttled** per master, preventing rapid taps from piling up master UI dumps. Slave execution uses a `ThreadPoolExecutor` (default 8 concurrent).
+
+**Tap vs. drag detection**: in semantic mode, touch-DOWN records the start point; touch-UP compares displacement. ≥ `SYNC_SWIPE_MIN_PX` (24 px) → treated as a **drag** mirrored as a coordinate swipe to every slave; below threshold → it's a **tap** routed through semantic click. (Fixes an early bug where on-screen drags collapsed into a single tap.)
+
+**Lifecycle hooks**: `reservations._teardown()` (the single funnel for all release paths) defensively calls `sync.lifecycle.on_device_gone()` at the end — a released/offline **master** dissolves its group and releases all slaves; a released/offline **slave** is removed from its group (the rest keep running).
+
+**Frontend integration caveats**:
+- `ensureLabStream` deliberately **skips devices already streaming** — calling `startDevice` again on a healthy master triggers scrcpy's `reset_video` re-negotiation, which stalls its video (remote track goes muted). Real bug, hard-learned.
+- Slaves block manual touch/scroll/key/text input at the `useScrcpySession.emitTo` chokepoint while a group is active (so they stay clean mirrors), but system events (power/rotate/clipboard) still flow.
+
+**Logs & evidence**:
+- Execution stream goes to `logs/sync.log` via `RotatingFileHandler` (2 MB × 3 backups ≈ 8 MB ceiling; rotation IS the cleanup, no scheduled task needed).
+- A total failure (semantic AND coordinate fallback both fail) invokes `failure_collector.capture()`, dropping **screenshot + UI hierarchy XML + JSON detail** under `data/sync_failures/<group>/<date>/`. These are discrete files (no rotation), so an age-based cleanup throttled to once per hour and triggered off capture itself does the housekeeping (retention = `SYNC_FAILURE_RETENTION_DAYS` days).
+- **No DB tables added**: real-time per-slave results live in the dispatcher's in-memory snapshot (one entry per slave, naturally bounded), the UI polls every 1.5 s to colour each chip.
+
 ## Project Structure
 
 ```
@@ -123,7 +155,8 @@ WebAppFlaskscrcpy/
 │   ├── reservations.py       #   reservation REST
 │   ├── devices.py            #   device list/start-stop/input/files/apps/logcat
 │   ├── streams.py            #   stream config/adaptive/snapshot
-│   └── webrtc.py             #   WebRTC signaling (offer/ice/close)
+│   ├── webrtc.py             #   WebRTC signaling (offer/ice/close)
+│   └── sync.py               #   🧪 Lab: sync-group CRUD + u2 introspection / semantic preview
 ├── services/                 # business logic
 │   ├── database.py           #   SQLite connection, schema, seed accounts
 │   ├── authentication.py     #   password hashing, session tokens, role decorators
@@ -133,6 +166,14 @@ WebAppFlaskscrcpy/
 │   ├── adb_bootstrap.py      #   bundled-adb extraction + PATH injection (cross-platform)
 │   ├── webrtc_session.py     #   WebRTC session orchestration
 │   ├── quality_controller.py #   adaptive anti-mosaic control
+│   ├── sync/                 # 🧪 Lab: multi-device master→slave sync (ENABLE_SYNC kill-switch)
+│   │   ├── sync_groups.py    #   in-memory group manager (no DB)
+│   │   ├── sync_dispatcher.py#   fan-out + coordinate mapping + throttling + worker pool
+│   │   ├── semantic_event_builder.py # u2 control reverse-lookup + selector generation
+│   │   ├── u2_pool.py        #   u2 device connection pool + per-serial RLock
+│   │   ├── u2_executor.py    #   u2 semantic click / text (with fallback)
+│   │   ├── failure_collector.py # failure evidence (PNG/XML/JSON) + age-based cleanup
+│   │   └── lifecycle.py      #   release/offline hooks → dissolve / shrink groups
 │   └── ...                   #   device info / files / uploads / logs / input ...
 ├── scrcpy/                   # trimmed scrcpy client port
 │   ├── scrcpyclients.py / scrcpycore.py / scrcpycontrol.py
@@ -146,11 +187,18 @@ WebAppFlaskscrcpy/
 │       └── locales/          #   en / zh-CN / zh-TW
 ├── scripts/
 │   └── init_db.py            # DB tool: init / clear / reset / status / backup
+├── config/
+│   └── config.py             # single source of truth for all tunables (flags / port / DB / sync params)
 ├── resources/
-│   ├── re_adb/               #   The execution path for ADB after extraction
-│   └── runpath/              #   adb extracted on first boot
-├── tests/                    # pytest white-box tests
-└── data/                     # SQLite database (app.db)
+│   ├── re_adb/               #   adb archives
+│   ├── runpath/              #   adb extracted on first boot
+│   ├── scrcpy/               #   scrcpy-server.jar
+│   └── uiautomator/          #   uiautomator helper APKs (Lab / semantic sync; optional)
+├── tests/                    # pytest white-box tests (incl. test_sync_chain.py — full sync chain)
+├── logs/                     # application logs + sync.log (sync stream, rotating)
+└── data/
+    ├── app.db                # SQLite database (accounts/sessions/reservations)
+    └── sync_failures/        # sync failure evidence (PNG/XML/JSON, age-based cleanup)
 ```
 
 ## Features
@@ -173,6 +221,21 @@ WebAppFlaskscrcpy/
 - Light / dark theme (shared toggle component on login and main UI)
 - Trilingual: Simplified / Traditional Chinese, English
 - Stream tuning and adaptive anti-mosaic
+
+### Lab · Multi-device master→slave sync
+> Sidebar "Lab" entry; pluggable kill-switch — when off, completely decoupled from the main path.
+- **Master→slave sync**: pick 1 master + N slaves; operating the master mirrors to every slave
+- **Two modes**:
+  - **Coordinate** (V1): proportional coordinate mirroring; auto-handles cross-resolution; ms-level latency
+  - **Semantic** (V2, via uiautomator2): reverse-look-up the master's tap to a control (resourceId/text/xpath), slaves locate that same control and click; falls back to coordinates on miss
+- **Tap vs. drag detection**: a press → semantic control click; a drag (displacement ≥ 24 px) → coordinate-swipe mirror
+- **Quick keys / directional swipes / text input** all fan out to slaves too (semantic mode types text via u2 `send_keys`, falling back to scrcpy text injection)
+- **Reservation exception**: creating a group batch-reserves the master + all slaves (the single bypass of the "one-device-per-user" anti-hogging rule); stopping the group releases the slaves while keeping the master
+- **Lifecycle hooks**: master released/offline → group auto-dissolves and slaves are released; slave released/offline → automatically removed from the group
+- **Multi-user concurrency safety**: per-serial RLock on u2 calls; workers re-validate "group exists + still a member + still owned by group master" before touching a slave, closing the device-ownership-changed race
+- **Stability**: semantic tap single-flight + 250 ms throttle (prevents dump storms); slave execution thread pool (default 8 concurrent); failure evidence (screenshot + UI XML + JSON detail) dropped under `data/sync_failures/`, cleaned by age
+- **Frontend dashboard**: two-column layout in the Lab page (centered panel before a group; panel + live previews after), with per-slave execution results live-coloured (green = semantic ok / yellow = fallback / red = failed / grey = offline)
+- **File logs, not DB**: execution stream written to `logs/sync.log` via `RotatingFileHandler` (2 MB × 3 rotation); no schema added to the main DB
 
 ## Tech Stack
 
@@ -262,18 +325,31 @@ npm run format      # Prettier (npm run format:check to only check)
 
 ## Configuration
 
-Set via environment variables before launch:
+**Single source of truth: `config/config.py`**. Every tunable lives in this one file; other modules only read from it. Each setting also honours an optional environment variable of the same name as a deploy-time override (when unset, the literal default in the file is used). No `.env` file is needed.
 
-| Variable           | Default | Description                                                                            |
-|--------------------|---------|----------------------------------------------------------------------------------------|
-| `FLASK_SECRET_KEY` | random  | Session cookie signing key; pin it in production or every restart invalidates sessions |
-| `HOST`             | LAN IP  | Backend bind address (`app.py`)                                                        |
-| `PORT`             | `5001`  | Backend port                                                                           |
-| `OPEN_BROWSER`     | `1`     | Auto-open browser (`0` to disable)                                                     |
-| `ENABLE_WEBRTC`    | `1`     | WebRTC signaling kill-switch (`0` to force off)                                        |
-| `ENABLE_TERMINAL`  | `1`     | Embedded terminal toggle                                                               |
+Key settings:
 
-Session TTL, max reservation minutes, etc. live as code constants (`services/authentication.py`, `services/reservations.py`).
+| Setting                          | Default                          | Description                                                                            |
+|----------------------------------|----------------------------------|----------------------------------------------------------------------------------------|
+| `ENABLE_SYNC`                    | `True`                           | 🧪 Lab: multi-device sync master switch (off → blueprint not registered, fan-out skipped, UI entry hidden) |
+| `ENABLE_WEBRTC`                  | `True`                           | WebRTC signaling toggle                                                                |
+| `ENABLE_TERMINAL`                | `True`                           | Embedded terminal toggle                                                               |
+| `OPEN_BROWSER`                   | `True`                           | Auto-open browser on startup                                                           |
+| `HOST` / `PORT`                  | LAN IP / `5001`                  | Backend bind address / port                                                            |
+| `FLASK_SECRET_KEY`               | random on boot                   | Session cookie signing key; pin in production or every restart invalidates sessions    |
+| `DB_PATH`                        | `data/app.db`                    | SQLite database path                                                                   |
+| `LOG_LEVEL`                      | `INFO`                           | Log level                                                                              |
+| `SESSION_TTL_HOURS`              | `24`                             | Session validity                                                                       |
+| `RESERVATION_*`                  | `240 / 60 / 30 / 10`             | Max / default minutes, grace seconds, sweeper interval seconds                          |
+| `SCRCPY_SERVER_PATH` / `_VERSION` | `resources/scrcpy/...` / `4.0`   | scrcpy-server jar path and version string                                              |
+| `U2_WAIT_TIMEOUT`                | `1.5`                            | 🧪 u2 selector wait timeout (seconds)                                                  |
+| `SYNC_TAP_THROTTLE_MS`           | `250`                            | 🧪 Semantic-tap throttle interval (anti dump-storm)                                    |
+| `SYNC_MAX_CONCURRENCY`           | `8`                              | 🧪 Concurrent slave fan-out cap                                                        |
+| `SYNC_LOG_PATH/MAX_BYTES/BACKUP_COUNT` | `logs/sync.log` / 2 MB / 3 | 🧪 Sync stream log (rotating)                                                          |
+| `SYNC_FAILURE_CAPTURE`           | `True`                           | 🧪 Whether to capture screenshot + UI XML + JSON on total failure                      |
+| `SYNC_FAILURE_DIR`               | `data/sync_failures`             | 🧪 Evidence directory                                                                  |
+| `SYNC_FAILURE_RETENTION_DAYS`    | `14`                             | 🧪 Evidence retention days (cleanup triggered off capture, throttled hourly)           |
+| `SYNC_SWIPE_MIN_PX` / `SYNC_SWIPE_DEFAULT_MS` | `24` / `200`        | 🧪 Min displacement to count as a swipe in semantic mode / default swipe duration       |
 
 ## Security Design
 
@@ -298,6 +374,7 @@ Session TTL, max reservation minutes, etc. live as code constants (`services/aut
 3. **Mirror & control**: click "Start" on a device card to begin mirroring; touch, input, drag-and-drop files, clipboard, terminal, etc.
 4. **Release**: release any time; reservations also auto-expire.
 5. **Admin**: the "Admin" button (top-right) opens the panel — user management (create / edit email / reset password / change role / enable-disable / delete) and a reservation overview (force-release).
+6. **🧪 Multi-device sync (Lab)**: left-rail "Lab" entry (requires `ENABLE_SYNC=True`) — pick 1 master + N slaves → choose mode (semantic / coordinate) → "Start sync". On group creation, all members are batch-reserved and started; the right column then shows live previews with per-slave result colours (green = semantic ok / yellow = fallback / red = failed). Stopping the group releases the slaves and keeps the master.
 
 ## API Reference
 
@@ -328,6 +405,23 @@ Session TTL, max reservation minutes, etc. live as code constants (`services/aut
 `/api/device/<id>/{info,keyevent,swipe,rotate,logcat,files,apps,...}`,
 `/api/{scrcpy-server,stream-config,reconfigure,adaptive,snapshot,active-streams}`.
 
+> Note: when `ENABLE_SYNC=True` and the device is the master of a sync group, `POST /api/device/<id>/keyevent` and `POST /api/device/<id>/swipe` defensively fan out to all slaves after the master itself succeeds (any fan-out error never affects the master's own response).
+
+### 🧪 Lab · Multi-device sync (`/api/sync-groups*`, `/api/devices/<id>/u2/*`, only when `ENABLE_SYNC=True`)
+
+| Method | Path                                       | Access            | Description                                                                                                |
+|--------|--------------------------------------------|-------------------|------------------------------------------------------------------------------------------------------------|
+| GET    | `/api/sync-groups`                         | auth              | List sync groups (admins see all, users see their own) + live status snapshot                              |
+| POST   | `/api/sync-groups`                         | auth              | Create a group: `{master_device_id, slave_device_ids[], mode, sync_touch/keyevent/text}`, batch-reserves master + slaves |
+| DELETE | `/api/sync-groups/<group_id>`              | owner / admin     | Dissolve the group, releases the slaves (master stays reserved)                                            |
+| POST   | `/api/sync-groups/<group_id>/enable`       | owner / admin     | Enable sync                                                                                                |
+| POST   | `/api/sync-groups/<group_id>/disable`      | owner / admin     | Pause sync                                                                                                 |
+| POST   | `/api/sync-groups/precheck`                | auth              | Builder pre-flight: `{device_ids[]}` → per-device `online / reserved_by_me / reserved_by_other / in_group` |
+| GET    | `/api/devices/<id>/u2/ping`                | reservation owner | uiautomator2 connectivity + window size + current app (first call pushes `u2.jar` to the device)           |
+| GET    | `/api/devices/<id>/u2/hierarchy`           | reservation owner | Current UI hierarchy XML (debug)                                                                           |
+| POST   | `/api/devices/<id>/u2/inspect`             | reservation owner | `{x,y}` → resolve the control at that point to a selector (resourceId / text / xpath / bounds)             |
+| POST   | `/api/devices/<id>/u2/semantic`            | reservation owner | `{x,y}` → preview the semantic event that tap would produce (mode + selector + coordinate fallback)        |
+
 ### Socket.IO events
 - WebRTC signaling: `webrtc:offer` / `webrtc:ice` / `webrtc:close` (→ `webrtc:answer` / `webrtc:ice` / `webrtc:closed`)
 - Terminal: `terminal:open` / `terminal:input` / `terminal:resize` / `terminal:close` (→ `terminal:opened/output/closed/error`)
@@ -348,9 +442,14 @@ python scripts/init_db.py backup    # timestamped copy of data/app.db
 ```bash
 # Full white-box suite (pytest)
 python -m pytest tests/ -q
+
+# Lab · sync chain white-box test (also runnable directly)
+python tests/test_sync_chain.py
 ```
 
 Coverage: full account chain (register/login/logout/check-auth), password policy & validators, login lockout, role visibility & admin constraints, reservation lifecycle (claim/extend/race/expiry/sweep), three-plane authorization, reservation HTTP routes, and the `init_db` tool.
+
+**`tests/test_sync_chain.py`** mocks device IO at the boundaries (scrcpy control, u2 executor / inspect, adb shell, input_shell, failure capture, reservations) and asserts the full sync chain in 12 cases: coordinate touch ratio mapping / text+key+swipe fan-out, semantic tap success / fallback / total-failure evidence, semantic text success+fallback, keyevent fan-out, directional swipe fan-out, throttle single-flight + interval, revalidate guard (member / non-reserved / owned-by-other), lifecycle master dissolution + slave shrink.
 
 ## Deployment
 

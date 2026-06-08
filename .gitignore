@@ -57,6 +57,9 @@ data/*.db-journal
 data/*.db-wal
 data/*.db-shm
 data/_preview.db
+# Lab feature runtime artefacts — generated on the fly, not source.
+data/sync_failures/
+logs/sync.log*
 
 # ─────────────────────────────────────────────────────────────
 # Bundled adb — keep the source package (resources/re_adb/), but

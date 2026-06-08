@@ -29,11 +29,12 @@ from typing import Optional
 from flask import g, jsonify, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from config import config
 from services.database import get_conn
 
 _log = logging.getLogger(__name__)
 
-SESSION_TTL_HOURS = 24
+SESSION_TTL_HOURS = config.SESSION_TTL_HOURS
 ROLES = ("super_admin", "admin", "user")
 
 

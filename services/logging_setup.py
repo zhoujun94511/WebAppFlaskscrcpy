@@ -123,9 +123,11 @@ class _AlignedFormatter(logging.Formatter):
 
 
 def _resolve_level(level: Optional[Union[str, int]]) -> int:
-    """Accept a string, int, or ``None`` (use env / default)."""
+    """Accept a string, int, or ``None`` (use the central config default)."""
     if level is None:
-        level = os.environ.get("LOG_LEVEL", DEFAULT_LEVEL)
+        from config import config
+
+        level = config.LOG_LEVEL
     if isinstance(level, int):
         return level
     parsed = logging.getLevelName(str(level).strip().upper())

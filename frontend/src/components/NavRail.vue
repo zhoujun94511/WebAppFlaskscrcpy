@@ -34,9 +34,15 @@
 import { computed, h } from "vue";
 import { useUiI18n } from "../composables/useUiI18n";
 import { useAuth } from "../composables/useAuth";
+import { useSync } from "../composables/useSync";
 
 const { t } = useUiI18n();
 const { isAdmin } = useAuth();
+// Experimental "Lab" section: only surfaced when the backend has the sync
+// feature enabled (ENABLE_SYNC=1, probed via /api/sync-groups). When off,
+// `available` stays false and the entry never renders — frontend entry
+// hidden, backend calls blocked. Fully separated from the core nav.
+const { available: syncAvailable } = useSync();
 
 defineProps({
   modelValue: { type: String, default: "device" },
@@ -69,12 +75,26 @@ const SettingsIcon = Svg([
   "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
 ]);
 
+// Erlenmeyer flask — the experimental "Lab" section.
+const LabIcon = Svg([
+  "M9 3h6",
+  "M10 3v6L4.5 18a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 9V3",
+  "M7 14h10",
+]);
+
 // MUST be a computed so labels re-translate when the locale changes.
 // The earlier plain-array form captured t('navRail.device') ONCE at
 // setup time and never updated — symptom: nav rail kept showing the
 // initial locale's "Devices / Settings" even after switching to 中文.
-const items = computed(() => [
-  { id: "device", label: t("navRail.device"), icon: DeviceIcon },
-  { id: "settings", label: t("navRail.settings"), icon: SettingsIcon },
-]);
+const items = computed(() => {
+  const base = [
+    { id: "device", label: t("navRail.device"), icon: DeviceIcon },
+    { id: "settings", label: t("navRail.settings"), icon: SettingsIcon },
+  ];
+  // Append the Lab entry below 设备/设置 only when the feature is on.
+  if (syncAvailable.value) {
+    base.push({ id: "lab", label: t("navRail.lab"), icon: LabIcon });
+  }
+  return base;
+});
 </script>

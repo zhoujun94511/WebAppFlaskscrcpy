@@ -31,19 +31,21 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import scrcpy.scrcpyclients as scrcpy_clients
+from config import config
 from services import socket_bridge
 from services.database import get_conn
 
 _log = logging.getLogger(__name__)
 
-MAX_RESERVATION_MINUTES = 240  # hard cap so nobody squats a device forever
-DEFAULT_RESERVATION_MINUTES = 60
-_SWEEP_INTERVAL_SECONDS = 10
+# All tunables sourced from the central config (config/config.py).
+MAX_RESERVATION_MINUTES = config.RESERVATION_MAX_MINUTES  # hard cap so nobody squats forever
+DEFAULT_RESERVATION_MINUTES = config.RESERVATION_DEFAULT_MINUTES
+_SWEEP_INTERVAL_SECONDS = config.RESERVATION_SWEEP_INTERVAL_SECONDS
 # Grace buffer: a reservation is only torn down this many seconds AFTER its
 # nominal ``expires_at``. The frontend warns at T-2min and counts down to the
 # deadline; this soft buffer absorbs clock skew / a last-second "续时" click so
 # the stream isn't cut the very instant the timer hits zero.
-GRACE_SECONDS = 30
+GRACE_SECONDS = config.RESERVATION_GRACE_SECONDS
 
 
 class ReservationError(Exception):
@@ -95,8 +97,15 @@ def list_all() -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
-def claim(device_id: str, user: dict, minutes: int) -> dict:
-    """Reserve ``device_id`` for ``user``. Raises ReservationError on conflict."""
+def claim(device_id: str, user: dict, minutes: int, *, allow_multi: bool = False) -> dict:
+    """Reserve ``device_id`` for ``user``. Raises ReservationError on conflict.
+
+    ``allow_multi`` is an additive opt-in used ONLY by the experimental sync
+    feature (``api.sync``) to let one user batch-reserve a master + several
+    slaves. It bypasses the one-device-per-user anti-hogging rule below.
+    Every existing caller leaves it ``False`` so default behaviour is
+    completely unchanged.
+    """
     device_id = (device_id or "").strip()
     if not device_id:
         raise ReservationError("缺少设备ID")
@@ -111,8 +120,9 @@ def claim(device_id: str, user: dict, minutes: int) -> dict:
 
     # One-device-per-user: a regular user may hold only ONE device at a time
     # (anti-hogging). Admins/super_admins are exempt for operational needs.
-    # Re-claiming the SAME device (extend) is always allowed.
-    if (user.get("role") or "user") not in ("admin", "super_admin"):
+    # Re-claiming the SAME device (extend) is always allowed. The sync feature
+    # passes allow_multi=True to reserve a whole group at once.
+    if not allow_multi and (user.get("role") or "user") not in ("admin", "super_admin"):
         held = _user_active_device(user["id"])
         if held and held != device_id:
             raise ReservationError("你已占用其它设备，请先释放后再占用")
@@ -252,6 +262,18 @@ def _teardown(device_id: str, *, reason: str) -> None:
     socket_bridge.broadcast(
         "device_released", {"device_id": device_id, "reason": reason}
     )
+    # Experimental sync feature: detach this device from any sync group so a
+    # released/expired master stops its group and a released slave leaves it.
+    # Fully guarded + opt-in so it can never affect the core teardown path.
+    try:
+        from services import sync as _sync
+
+        if _sync.is_enabled():
+            from services.sync import lifecycle as _sync_lifecycle
+
+            _sync_lifecycle.on_device_gone(device_id)
+    except Exception as _sync_exc:  # noqa: BLE001
+        _log.debug("sync lifecycle hook skipped for %s: %s", device_id, _sync_exc)
 
 
 # ── expiry sweeper ──────────────────────────────────────────────────────

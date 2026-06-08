@@ -26,6 +26,8 @@ WebAppFlaskScrcpy 是一个**纯浏览器**的 Android 远程镜像与控制平�
 
 在镜像能力之上，平台内置了一套完整的**账号体系**与**设备占用（预约）机制**，使其可以作为团队共享的设备运维台：谁在用哪台设备一目了然，管理员可强制释放、管理用户。
 
+平台还内置了一个**实验室**模块（侧边栏「实验室」），提供**多机主从同步**能力：一次操作主机、若干从机自动跟随（支持按比例**坐标**镜像，或基于 uiautomator2 的**语义**镜像 —— 按控件识别失败回坐标兜底），适用于多机回归测试、批量演示、兼容性核对等场景。
+
 ## 界面展示
 
 <div align="center">
@@ -121,6 +123,36 @@ SQLite (账号/会话/设备占用)               Android 设备 (USB/TCP)
 - 每次释放都执行 `_teardown`：停 scrcpy 客户端 → 关该设备所有 WebRTC peer → 广播 `device_released`，确保设备真正空闲。
 - **三面闸门**：HTTP（`api/devices.py` 的 `_require_owner`）、WebRTC（`webrtc:offer`）、终端（`terminal:open`）全部调用 `reservations.assert_owner`——只守 HTTP 会被另外两条平面绕过。
 
+### 🧪 实验室 · 多机同步实现要点
+
+**架构定位**：完全可插拔的"加性"功能——后端蓝图只在 `config.ENABLE_SYNC=True` 时注册；数据面（输入扇出）以**防御式 try/except** 接入 `services/scrcpy_input.dispatch()` 末尾，任何错误不影响主机原有控制路径。
+
+**数据面接入点**：`services/scrcpy_input.dispatch()` —— WebRTC `input` DataChannel 所有输入事件的唯一聚合点。在此末尾以 `if config.ENABLE_SYNC: sync_dispatcher.fanout(...)` 注入扇出；快捷键 / 方向滑动这两条走 HTTP 的也在 `api/devices.py` 对应路由末尾追加扇出 hook（同样防御式）。
+
+**占用旁路**：建组路径调用 `reservations.claim(..., allow_multi=True)` —— 这是"单用户单设备"反独占规则的**唯一加性旁路**（默认参数为 `False`，所有原有调用行为不变），解散组时把从机原路释放。
+
+**两种同步模式**：
+- **坐标模式**：扇出即按比例换算 `master_resolution → slave_resolution` 后通过 `scrcpy.control.touch/swipe/text/keycode` 注入；快路径全部走 aiortc loop 线程的内联 socket 写，swipe 单独 offload worker。
+- **语义模式**（基于 uiautomator2 v3）：tap 抬起时 → `semantic_event_builder.build_tap()` 在 master 端 `dump_hierarchy()` 反查控件 → 在每台 slave 上按 `resourceId → resourceId+text → text → description → xpath` 优先级匹配点击 → 失败回坐标兜底；整段 offload 到 worker 线程（master dump 耗时不能占 aiortc loop）；u2 v3 用包内自带 `u2.jar` 经 `app_process` 跑临时进程（**非常驻 App**，比 v2 atx-agent 侵入小）。
+
+**并发安全（多用户场景）**：
+- u2 jsonrpc 连接非线程安全 → `u2_pool.device_lock(serial)` 提供 **per-device RLock**，同一设备上的 u2 调用串行，不同设备照常并行
+- worker 线程注入每台从机**之前**重校验：组仍存在且启用 + 从机仍是成员 + **从机仍被组主占用**——堵住"设备被强制释放/过期，已在飞的 worker 还去点已易主设备"的竞态
+- semantic tap **单飞 + 250ms 节流**：防止主机连点触发 dump 风暴；从机执行用 `ThreadPoolExecutor`（默认 8 并发）
+
+**触控智能识别**：语义模式下 touch DOWN 记位置，UP 时比位移——位移 ≥ `SYNC_SWIPE_MIN_PX`(24px) 判定为**拖动** → 走坐标 swipe 扇出；几乎没动才当**点按** → 走语义控件点击。修了"屏幕拖动只点一下"的早期 bug。
+
+**生命周期联动**：`reservations._teardown()`（所有释放路径都经过它）末尾防御式调用 `sync.lifecycle.on_device_gone()`——主机被释放/离线 → 解散组并释放全部从机；从机被释放/离线 → 自动移出组（剩余从机继续）。
+
+**前端集成约束**：
+- `ensureLabStream` 跳过已在推流的设备（重复 `startDevice` 会触发 scrcpy 的 `reset_video` 重协商，把已健康的主机视频搞挂——这是真踩过的坑）
+- 从机在 `useScrcpySession.emitTo` 卡点屏蔽手动 touch/scroll/key/text 输入（同步中只读，避免误操作打乱镜像）；控制类事件（power/rotate/clipboard 等）仍可通过
+
+**日志与留证**：
+- 执行流水写 `logs/sync.log`（`RotatingFileHandler` 2MB×3 = 总上限 ~8MB，自带滚动 = 自带"清理"，无需定时任务）
+- 彻底失败（语义 + 坐标兜底都失败）调 `failure_collector.capture()` 抓 **截图 + UI XML + JSON 详情** 落 `data/sync_failures/<group>/<date>/`（离散文件，按 `SYNC_FAILURE_RETENTION_DAYS` 天数清理，触发于下次 capture 时节流到每小时一次）
+- **不入 DB**：实时结果走 dispatcher 内存快照（每 slave 仅存最新一次，天然有界），UI 1.5s 轮询拿到刷颜色
+
 ## 项目框架
 
 ```
@@ -133,7 +165,8 @@ WebAppFlaskscrcpy/
 │   ├── reservations.py       #   设备占用 REST
 │   ├── devices.py            #   设备列表/启停/输入/文件/应用/日志
 │   ├── streams.py            #   推流配置/自适应/快照
-│   └── webrtc.py             #   WebRTC 信令（offer/ice/close）
+│   ├── webrtc.py             #   WebRTC 信令（offer/ice/close）
+│   └── sync.py               #   🧪 实验室：同步组 CRUD + u2 检视 / 语义预览
 ├── services/                 # 业务逻辑层
 │   ├── database.py           #   SQLite 连接与建表/种子账号
 │   ├── authentication.py     #   口令哈希、会话令牌、角色装饰器
@@ -143,6 +176,14 @@ WebAppFlaskscrcpy/
 │   ├── adb_bootstrap.py      #   自带 adb 释放与 PATH 注入（跨平台）
 │   ├── webrtc_session.py     #   WebRTC 会话编排
 │   ├── quality_controller.py #   自适应抗花屏控制
+│   ├── sync/                 # 🧪 实验室：多机主从同步（ENABLE_SYNC 总开关）
+│   │   ├── sync_groups.py    #   组管理（内存 + 锁，不入库）
+│   │   ├── sync_dispatcher.py#   扇出 + 坐标映射 + 节流 + 并发线程池
+│   │   ├── semantic_event_builder.py # u2 控件反查 + selector 生成
+│   │   ├── u2_pool.py        #   u2 设备连接池 + per-serial 锁
+│   │   ├── u2_executor.py    #   u2 语义点击 / 文本（带兜底）
+│   │   ├── failure_collector.py # 失败留证（截图/XML/JSON）+ 按天清理
+│   │   └── lifecycle.py      #   设备释放/离线时联动解散组
 │   └── ...                   #   设备信息/文件/上传/日志/输入等
 ├── scrcpy/                   # 精简移植的 scrcpy 客户端
 │   ├── scrcpyclients.py / scrcpycore.py / scrcpycontrol.py
@@ -156,11 +197,18 @@ WebAppFlaskscrcpy/
 │       └── locales/          #   en / zh-CN / zh-TW 三语
 ├── scripts/
 │   └── init_db.py            # 数据库工具：init / clear / reset / status / backup
+├── config/
+│   └── config.py             # 统一配置入口（功能开关 / 端口 / DB / 同步参数等）
 ├── resources/
 │   ├── re_adb/               #   adb解压后运行路径
-│   └── runpath/              #   首启释放后的 adb
-├── tests/                    # pytest 白盒测试
-└── data/                     # SQLite 数据库 (app.db)
+│   ├── runpath/              #   首启释放后的 adb
+│   ├── scrcpy/               #   scrcpy-server.jar
+│   └── uiautomator/          #   uiautomator helper APK（实验室语义同步用，可选）
+├── tests/                    # pytest 白盒测试（含 test_sync_chain.py 全链路）
+├── logs/                     # 应用日志 + sync.log（同步流水，滚动）
+└── data/
+    ├── app.db                # SQLite 数据库（账号/会话/占用）
+    └── sync_failures/        # 同步失败现场（截图/XML/JSON，按天清理）
 ```
 
 ## 功能特性
@@ -184,6 +232,21 @@ WebAppFlaskscrcpy/
 - 明 / 暗主题切换（登录页与主界面共用同一组件）
 - 中文（简/繁）/ 英文 三语
 - 推流参数与自适应抗花屏
+
+### 实验室 · 多机主从同步（Lab）
+> 侧边栏「实验室」入口；带可插拔总开关，默认关闭即与主链路完全无关。
+- **主从同步**：选 1 台主机 + 若干从机，操作主机即镜像到所有从机
+- **两种模式**：
+  - **坐标模式**（V1）：按比例坐标镜像，跨分辨率自动换算，毫秒级延迟
+  - **语义模式**（V2，基于 uiautomator2）：把主机点击反查为控件（resourceId/text/xpath），从机按控件定位再点击，失败自动回退坐标兜底
+- **触控智能区分**：屏幕上的点按 → 控件点击；拖动（位移 ≥ 24px）→ 坐标 swipe 镜像
+- **快捷键 / 方向滑动 / 文本输入** 同样自动扇出到从机（语义模式下文本走 u2 `send_keys`，失败回退 scrcpy 文本注入）
+- **占用例外**：建组时批量占用主机+从机（突破"单用户单设备"反独占规则的唯一旁路），停组时释放从机、保留主机
+- **生命周期联动**：主机被释放/离线 → 自动解散组并释放从机；从机被释放/离线 → 自动移出组
+- **多用户并发安全**：u2 调用 per-serial 串行锁；worker 注入前重校验"组仍存在 + 仍是成员 + 仍被组主占用"，堵设备易主竞态
+- **稳定性增强**：语义 tap 单飞 + 250ms 节流防 dump 风暴；从机执行线程池（默认 8 并发）；失败留证（截图 + UI XML + JSON 详情）落 `data/sync_failures/`，按天清理
+- **前端可视化**：实验室页双栏布局（建组前居中面板、建组后左面板+右成员实时预览），每台从机执行结果实时回显（绿=语义成功 / 黄=兜底 / 红=失败 / 灰=离线）
+- **日志走文件不入库**：执行流水写 `logs/sync.log`（`RotatingFileHandler`，2MB×3 滚动），不污染主库 schema
 
 ## 技术架构
 
@@ -281,18 +344,31 @@ npm run format      # Prettier 格式化（npm run format:check 仅检查）
 
 ## 配置说明
 
-通过环境变量配置（启动前设置）：
+**唯一入口：`config/config.py`**。所有可调参数集中在这一个文件，其它模块只读不改；每项也支持同名环境变量在部署期覆盖（不设则用文件默认值）。无需 `.env` 文件。
 
-| 变量                 | 默认     | 说明                                |
-|--------------------|--------|-----------------------------------|
-| `FLASK_SECRET_KEY` | 随机     | 会话 Cookie 签名密钥；生产务必固定，否则重启即失效全部会话 |
-| `HOST`             | 局域网 IP | 后端绑定地址（`app.py`）                  |
-| `PORT`             | `5001` | 后端端口                              |
-| `OPEN_BROWSER`     | `1`    | 是否自动开浏览器（`0` 关闭）                  |
-| `ENABLE_WEBRTC`    | `1`    | WebRTC 信令开关（`0` 强制关闭）             |
-| `ENABLE_TERMINAL`  | `1`    | 内嵌终端开关                            |
+主要配置项：
 
-会话有效期、占用时长上限等在代码常量中（`services/authentication.py`、`services/reservations.py`）。
+| 配置项                           | 默认                          | 说明                                                |
+|-------------------------------|-----------------------------|---------------------------------------------------|
+| `ENABLE_SYNC`                 | `True`                      | 🧪 实验室：多机主从同步总开关（关闭则蓝图不注册、扇出不生效、前端隐藏入口）         |
+| `ENABLE_WEBRTC`               | `True`                      | WebRTC 信令开关                                       |
+| `ENABLE_TERMINAL`             | `True`                      | 内嵌终端开关                                            |
+| `OPEN_BROWSER`                | `True`                      | 启动后是否自动开浏览器                                       |
+| `HOST` / `PORT`               | LAN IP / `5001`             | 后端绑定地址 / 端口                                       |
+| `FLASK_SECRET_KEY`            | 启动随机                        | 会话 Cookie 签名密钥；生产务必固定，否则重启失效全部会话                  |
+| `DB_PATH`                     | `data/app.db`               | SQLite 数据库路径                                      |
+| `LOG_LEVEL`                   | `INFO`                      | 日志级别                                              |
+| `SESSION_TTL_HOURS`           | `24`                        | 会话有效期                                             |
+| `RESERVATION_*`               | `240/60/30/10`              | 占用最长 / 默认 / 宽限秒 / 清扫间隔秒                           |
+| `SCRCPY_SERVER_PATH`/`_VERSION` | `resources/scrcpy/...` / `4.0` | scrcpy server jar 路径与版本号                          |
+| `U2_WAIT_TIMEOUT`             | `1.5`                       | 🧪 u2 选择器等待超时（秒）                                  |
+| `SYNC_TAP_THROTTLE_MS`        | `250`                       | 🧪 语义 tap 节流间隔（防 dump 风暴）                         |
+| `SYNC_MAX_CONCURRENCY`        | `8`                         | 🧪 每次扇出的从机并发上限                                    |
+| `SYNC_LOG_PATH/MAX_BYTES/BACKUP_COUNT` | `logs/sync.log` / 2MB / 3 | 🧪 同步流水日志（滚动）                                     |
+| `SYNC_FAILURE_CAPTURE`        | `True`                      | 🧪 彻底失败时是否抓取截图 + UI XML + JSON                    |
+| `SYNC_FAILURE_DIR`            | `data/sync_failures`        | 🧪 留证目录                                           |
+| `SYNC_FAILURE_RETENTION_DAYS` | `14`                        | 🧪 留证保留天数（按 capture 触发节流清理）                       |
+| `SYNC_SWIPE_MIN_PX` / `SYNC_SWIPE_DEFAULT_MS` | `24` / `200`     | 🧪 语义模式下识别滑动的最小位移 / swipe 默认时长                    |
 
 ## 安全设计
 
@@ -317,6 +393,7 @@ npm run format      # Prettier 格式化（npm run format:check 仅检查）
 3. **镜像与控制**：点设备卡「开始推流」即开始投屏；支持触控、输入、文件拖拽、剪贴板、终端等。
 4. **释放设备**：本人可随时「释放」；到期自动回收。
 5. **管理员**：右上角「管理」打开面板——用户管理（建号/改邮箱/重置密码/改角色/启停/删除）与设备占用总览（强制释放）。
+6. **🧪 多机同步（实验室）**：左侧导航「实验室」入口（需 `ENABLE_SYNC=True`）——选 1 台主机 + 若干从机 → 选模式（语义/坐标）→「开始同步」。建组后自动批量占用全部成员并起流；右侧实时显示成员预览与每台从机的执行结果颜色（绿=语义成功 / 黄=兜底 / 红=失败）。停止同步会释放从机、保留主机。
 
 ## API 文档
 
@@ -347,6 +424,23 @@ npm run format      # Prettier 格式化（npm run format:check 仅检查）
 `/api/device/<id>/{info,keyevent,swipe,rotate,logcat,files,apps,...}`、
 `/api/{scrcpy-server,stream-config,reconfigure,adaptive,snapshot,active-streams}`。
 
+> 注：当 `ENABLE_SYNC=True` 且当前设备是同步组主机时，`POST /api/device/<id>/keyevent` 与 `POST /api/device/<id>/swipe` 在主机执行成功后会**防御式扇出**到全部从机（任何扇出错误不影响主机本身的响应）。
+
+### 🧪 实验室 · 多机同步（`/api/sync-groups*`、`/api/devices/<id>/u2/*`，仅当 `ENABLE_SYNC=True`）
+
+| 方法     | 路径                                       | 权限          | 说明                                                       |
+|--------|------------------------------------------|-------------|----------------------------------------------------------|
+| GET    | `/api/sync-groups`                       | 登录          | 列出同步组（管理员看全部，普通用户只看自己的）+ 实时状态快照                          |
+| POST   | `/api/sync-groups`                       | 登录          | 建组：`{master_device_id, slave_device_ids[], mode, sync_touch/keyevent/text}`，批量占用主机+从机 |
+| DELETE | `/api/sync-groups/<group_id>`            | 组主 / 管理员   | 解散组并释放从机（保留主机占用）                                         |
+| POST   | `/api/sync-groups/<group_id>/enable`     | 组主 / 管理员   | 启用同步                                                     |
+| POST   | `/api/sync-groups/<group_id>/disable`    | 组主 / 管理员   | 暂停同步                                                     |
+| POST   | `/api/sync-groups/precheck`              | 登录          | 建组前预检：`{device_ids[]}` → 每台返回 `online / reserved_by_me / reserved_by_other / in_group` |
+| GET    | `/api/devices/<id>/u2/ping`              | 占用归属        | uiautomator2 连通性 + 窗口尺寸 + 当前 App（首次会推送 u2.jar 到设备）        |
+| GET    | `/api/devices/<id>/u2/hierarchy`         | 占用归属        | 当前 UI 层级 XML（用于调试）                                       |
+| POST   | `/api/devices/<id>/u2/inspect`           | 占用归属        | `{x,y}` → 反查该坐标处的控件 selector（resourceId/text/xpath/bounds） |
+| POST   | `/api/devices/<id>/u2/semantic`          | 占用归属        | `{x,y}` → 预览该 tap 会产生的语义事件（mode + selector + 坐标兜底）        |
+
 ### Socket.IO 事件
 - WebRTC 信令：`webrtc:offer` / `webrtc:ice` / `webrtc:close`（→ `webrtc:answer` / `webrtc:ice` / `webrtc:closed`）
 - 终端：`terminal:open` / `terminal:input` / `terminal:resize` / `terminal:close`（→ `terminal:opened/output/closed/error`）
@@ -367,9 +461,14 @@ python scripts/init_db.py backup    # 时间戳备份 data/app.db
 ```bash
 # 全量白盒测试（pytest）
 python -m pytest tests/ -q
+
+# 实验室 · 同步链路单文件白盒测试（也支持直跑）
+python tests/test_sync_chain.py
 ```
 
 覆盖范围：账号全链路（注册/登录/登出/鉴权）、口令策略与校验器、登录失败锁定、角色可见性与管理约束、设备占用生命周期（claim/续期/竞态/过期/sweep）、三面授权闸门、占用 HTTP 路由、`init_db` 工具等。
+
+**`tests/test_sync_chain.py`** 用 mock 在边界（scrcpy control、u2 executor / inspect、adb shell、input_shell、failure capture、reservations）上断言完整同步链路 12 条用例：坐标 touch 比例映射 / text+key+swipe 扇出、语义 tap 成功 / 兜底 / 彻底失败留证、语义文本成功+兜底、keyevent 扇出、swipe 方向扇出、节流单飞+间隔、重校验守卫（成员/未占用/被他人占用）、生命周期主机解散 + 从机移出。
 
 ## 部署指南
 

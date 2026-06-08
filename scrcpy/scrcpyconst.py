@@ -2,21 +2,15 @@
 This module includes all consts used in this project
 """
 
-import os
+from config import config
 
 # scrcpy server jar + the version string the client announces. Both are
-# overridable via env so you can drop in a different server build (e.g. the
-# official Genymobile/scrcpy-server) WITHOUT editing code:
-#   SCRCPY_SERVER_PATH    — absolute path to the .jar
-#   SCRCPY_SERVER_VERSION — must equal that jar's own version, or the server
-#                           exits with "The server version (X) does not match
-#                           the client (Y)".
-# The version MUST match the jar; keep this default in sync with the bundled
-# resources/scrcpy-server.jar.
-SCRCPY_SERVER_VERSION = os.environ.get("SCRCPY_SERVER_VERSION") or "4.0"
-SCRCPY_SERVER_PATH = os.environ.get("SCRCPY_SERVER_PATH") or os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "resources", "scrcpy-server.jar")
-)
+# configured centrally in ``config/config.py`` (SCRCPY_SERVER_VERSION /
+# SCRCPY_SERVER_PATH) so you can drop in a different server build (e.g. the
+# official Genymobile/scrcpy-server) WITHOUT editing code here.
+# The version MUST match the jar.
+SCRCPY_SERVER_VERSION = config.SCRCPY_SERVER_VERSION
+SCRCPY_SERVER_PATH = config.SCRCPY_SERVER_PATH
 SCRCPY_AUDIO_ENABLED = True
 SCRCPY_AUDIO_CODEC = "raw"
 SCRCPY_AUDIO_SAMPLE_RATE = 48000

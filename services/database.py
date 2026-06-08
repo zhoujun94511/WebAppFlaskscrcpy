@@ -23,24 +23,22 @@ device_reservations one row per occupied device. ``device_id`` is the
 from __future__ import annotations
 
 import logging
-import os
 import secrets
 import sqlite3
 import threading
-from pathlib import Path
 
 from werkzeug.security import generate_password_hash
 
+from config import config
+
 _log = logging.getLogger(__name__)
 
-# DB file path. Overridable via ``WEBAPP_DB_PATH`` so a second instance (e.g. a
-# throwaway verification run) can point at an isolated DB instead of clobbering
-# the primary ``data/app.db`` — booting wipes user_sessions, so sharing one
-# file across two processes silently logs the other one out.
-DB_PATH = Path(
-    os.environ.get("WEBAPP_DB_PATH")
-    or (Path(__file__).resolve().parent.parent / "data" / "app.db")
-)
+# DB file path. Configured centrally in ``config/config.py`` (DB_PATH,
+# overridable via WEBAPP_DB_PATH) so a second instance (e.g. a throwaway
+# verification run) can point at an isolated DB instead of clobbering the
+# primary ``data/app.db`` — booting wipes user_sessions, so sharing one file
+# across two processes silently logs the other one out.
+DB_PATH = config.DB_PATH
 
 # Default seeded accounts. Documented in docs; change the passwords after
 # first deploy. The super_admin is the break-glass account that can never

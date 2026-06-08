@@ -19,6 +19,7 @@ import time
 import webbrowser
 from pathlib import Path
 
+from config import config
 from services import logging_setup
 
 _log = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ app = Flask(__name__, template_folder=None, static_folder=None)
 # Set FLASK_SECRET_KEY in the environment for a stable key across restarts
 # (otherwise every restart invalidates sessions — acceptable for dev, not
 # for prod). A random fallback keeps dev working out of the box.
-app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.urandom(32).hex()
+app.secret_key = config.FLASK_SECRET_KEY or os.urandom(32).hex()
 app.permanent_session_lifetime = timedelta(hours=auth_service.SESSION_TTL_HOURS)
 
 # Bootstrap the account/reservation database before any request can hit it.
@@ -119,7 +120,7 @@ def _require_login_for_api():
 
 # WebRTC signaling. ``ENABLE_WEBRTC=0`` only acts as a forced kill-switch
 # — the default behaviour already auto-falls-back when aiortc is missing.
-if os.environ.get("ENABLE_WEBRTC", "1") != "0":
+if config.ENABLE_WEBRTC:
     try:
         from api.webrtc import register as register_webrtc
 
@@ -129,7 +130,7 @@ if os.environ.get("ENABLE_WEBRTC", "1") != "0":
         _log.warning("WebRTC disabled: %s", _webrtc_exc)
 
 # Embedded ADB terminal (xterm.js). Same opt-out semantics as WebRTC above.
-if os.environ.get("ENABLE_TERMINAL", "1") != "0":
+if config.ENABLE_TERMINAL:
     try:
         from terminal.routes import register as register_terminal
 
@@ -137,6 +138,31 @@ if os.environ.get("ENABLE_TERMINAL", "1") != "0":
         _log.info("ADB terminal registered")
     except Exception as _term_exc:  # noqa: BLE001
         _log.warning("Terminal disabled: %s", _term_exc)
+
+# Experimental master→slave multi-device sync (lab feature). Opt-IN. The
+# single source of truth for the switch is ``services.sync.is_enabled()``
+# (reads the ENABLE_SYNC env var, default off) — both this control-plane
+# registration AND the data-plane hooks (input fan-out, reservation
+# lifecycle) consult it, so there's exactly one flag to flip. The control
+# plane (groups REST API) lives in api.sync; the data plane hooks into the
+# WebRTC input dispatcher and is itself guarded so a sync failure can never
+# disturb master input.
+if config.ENABLE_SYNC:
+    try:
+        from api.sync import bp as sync_bp
+
+        app.register_blueprint(sync_bp, url_prefix="/api")
+        _log.info("Sync (multi-device) feature registered [experimental]")
+        # One-shot cleanup of stale failure evidence at startup (the rest is
+        # throttled off capture). Best-effort.
+        try:
+            from services.sync import failure_collector
+
+            failure_collector.cleanup(config.SYNC_FAILURE_RETENTION_DAYS)
+        except Exception as _clean_exc:  # noqa: BLE001
+            _log.debug("sync startup cleanup skipped: %s", _clean_exc)
+    except Exception as _sync_exc:  # noqa: BLE001
+        _log.warning("Sync feature disabled: %s", _sync_exc)
 
 
 @app.route("/")
@@ -174,11 +200,11 @@ def open_browser(host: str, port: int) -> None:
 
 
 if __name__ == "__main__":
-    bind_host = os.environ.get("HOST") or get_local_ip()
-    bind_port = int(os.environ.get("PORT", "5001"))
+    bind_host = config.HOST or get_local_ip()
+    bind_port = config.PORT
 
     if not hasattr(app, "browser_opened") or not app.browser_opened:
-        if os.environ.get("OPEN_BROWSER", "1") != "0":
+        if config.OPEN_BROWSER:
             browser_thread = threading.Thread(
                 target=open_browser, args=(bind_host, bind_port), daemon=True
             )

@@ -8,7 +8,9 @@
           {{
             activeNav === "settings"
               ? t("navRail.settings")
-              : t("navRail.device")
+              : activeNav === "lab"
+                ? t("navRail.lab")
+                : t("navRail.device")
           }}
         </h1>
       </div>
@@ -96,7 +98,7 @@
         <p>{{ t("device.noneDetected") }}</p>
       </div>
 
-      <template v-else-if="viewMode === 'single'">
+      <template v-else-if="activeNav === 'device' && viewMode === 'single'">
         <div class="stage-layout" v-if="stageDeviceId">
           <aside class="stage-side stage-side-left">
             <ReservationCard
@@ -189,9 +191,10 @@
         />
       </template>
 
-      <div v-else ref="gridRef" class="device-grid" :style="gridStyle">
+      <template v-else>
+      <div ref="gridRef" class="device-grid" :style="gridStyle">
         <DeviceCard
-          v-for="id in visibleDevices"
+          v-for="id in gridDevices"
           :key="id"
           :device-id="id"
           :title="nameOf(id)"
@@ -231,6 +234,66 @@
             />
           </template>
         </DeviceCard>
+      </div>
+      </template>
+    </main>
+
+    <main class="page-main lab-page" v-else-if="activeNav === 'lab'">
+      <div class="lab-layout" :class="{ 'lab-split': labHasGroup }">
+        <div class="lab-control">
+          <SyncPanel
+            :devices="visibleDevices"
+            :names="deviceNames"
+            :ensure-stream="ensureLabStream"
+          />
+        </div>
+
+        <section v-if="labHasGroup" class="lab-preview">
+          <h2 class="lab-preview-label">{{ t("sync.devicePreview") }}</h2>
+          <div ref="gridRef" class="device-grid lab-grid" :style="gridStyle">
+            <DeviceCard
+              v-for="id in gridDevices"
+              :key="id"
+              :device-id="id"
+              :title="nameOf(id)"
+              :streaming="isStreaming(id)"
+              :active="id === focusedDeviceId"
+              :expanded="id === expandedDeviceId"
+              :paused="peekSession(id)?.paused.value || false"
+              :muted="id !== focusedDeviceId"
+              :frame-state="peekSession(id)?.frameState.value || 'idle'"
+              :online="devices.includes(id)"
+              :video-stream="videoStreamOf(id)"
+              :resolution-width="peekSession(id)?.resolutionWidth.value || 0"
+              :resolution-height="peekSession(id)?.resolutionHeight.value || 0"
+              :static-width="deviceGeometry[id]?.width || 0"
+              :static-height="deviceGeometry[id]?.height || 0"
+              @select="onCardSelect(id)"
+              @focus="onCardFocus(id)"
+              @start="onCardStart(id)"
+              @stop="onCardStop(id)"
+              @toggle-pause="togglePause(id)"
+              @toggle-expand="onCardToggleExpand(id)"
+              @touch="sendTouch(id, $event)"
+              @scroll="sendScroll(id, $event)"
+              @back="sendBackKey(id)"
+              @home="sendHomeKey(id)"
+              @send-key="(code) => sendQuickKey(id, code)"
+              @swipe="(dir) => sendSwipe(id, dir)"
+              @rotate-device="rotateDevice(id)"
+              @media-load="handleMediaLoad(id, $event)"
+              @upload-file="(file) => handleUploadFile(id, file)"
+            >
+              <template #reservation>
+                <ReservationCard
+                  :device-id="id"
+                  :online="devices.includes(id)"
+                  compact
+                />
+              </template>
+            </DeviceCard>
+          </div>
+        </section>
       </div>
     </main>
 
@@ -340,9 +403,11 @@ import StreamSettingsPanel from "./components/StreamSettingsPanel.vue";
 import TerminalPanel from "./components/TerminalPanel.vue";
 import ReservationCard from "./components/ReservationCard.vue";
 import AdminPanel from "./components/AdminPanel.vue";
+import SyncPanel from "./components/SyncPanel.vue";
 import { useAppContext } from "./composables/useAppContext";
 import { useAuth } from "./composables/useAuth";
 import { useReservations } from "./composables/useReservations";
+import { useSync } from "./composables/useSync";
 import { useScrcpySession } from "./useScrcpySession";
 
 const { t, viewMode, toggleViewMode } = useAppContext();
@@ -445,8 +510,12 @@ const {
 // Reservation store: hydrate once and keep it live off the signaling socket
 // (reservation_changed / device_released broadcasts).
 bindSocket(socket);
+const { fetchGroups: fetchSyncGroups, groups: syncGroups } = useSync();
 onMounted(() => {
   fetchReservations();
+  // Probe the experimental sync feature + hydrate any existing group. Safe
+  // no-op when the backend has the feature off (endpoint 404s).
+  fetchSyncGroups();
 });
 
 async function onLogout() {
@@ -458,24 +527,60 @@ async function onLogout() {
 // that one device — every other device is hidden from their grid / strip /
 // stage so they can't browse or grab others (the backend enforces the hard
 // rule; this just keeps the UI honest). Admins see everything.
+// Devices the current user holds. Normally 0 or 1 (anti-hogging), but the
+// experimental sync feature lets one user batch-reserve a master + slaves,
+// so this can legitimately hold several at once.
+const myReservedIds = computed(() =>
+  Object.values(reservations.value || {})
+    .filter((r) => r && r.is_mine)
+    .map((r) => r.device_id),
+);
 const lockedDeviceId = computed(() => {
   if (isAdmin.value) return "";
-  const mine = Object.values(reservations.value || {}).find(
-    (r) => r && r.is_mine,
-  );
-  return mine ? mine.device_id : "";
+  const mine = myReservedIds.value;
+  // Only lock-to-one under the single-device rule. A multi-device sync group
+  // is exempt (handled in visibleDevices below).
+  return mine.length === 1 ? mine[0] : "";
 });
 const visibleDevices = computed(() => {
   const all = devices.value;
+  if (isAdmin.value) return all;
+  const mine = myReservedIds.value;
+  // Sync group: show exactly the user's reserved members (master + slaves).
+  if (mine.length > 1) return all.filter((id) => mine.includes(id));
   const locked = lockedDeviceId.value;
   return locked && all.includes(locked) ? [locked] : all;
+});
+
+// In the Lab preview, once a sync group exists collapse the grid to just its
+// members (master + slaves) so a 10-20 device fleet doesn't all render/stream
+// during sync. Outside Lab (or before a group exists) the grid is unchanged.
+const labHasGroup = computed(() => !!(syncGroups.value || []).find((g) => g.is_mine));
+
+// Lab: ensure a member streams, but DON'T re-start one that's already live —
+// re-offering a healthy (often the master, which you're viewing while building
+// the group) triggers scrcpy's reset_video re-negotiation path, which stalls
+// its video (remote track goes muted). Only (re)start devices not yet ready.
+function ensureLabStream(id) {
+  if (isStreaming(id)) return Promise.resolve();
+  return startDevice(id);
+}
+const labMemberIds = computed(() => {
+  const mine = (syncGroups.value || []).find((g) => g.is_mine);
+  return mine ? [mine.master_device_id, ...mine.slave_device_ids] : null;
+});
+const gridDevices = computed(() => {
+  if (activeNav.value === "lab" && labMemberIds.value) {
+    return visibleDevices.value.filter((id) => labMemberIds.value.includes(id));
+  }
+  return visibleDevices.value;
 });
 
 // Adaptive grid: picks (cols, cardWidth) to balance visible card area
 // against device count + container size. Re-evaluates on ResizeObserver
 // and on device-count change. See composables/useDeviceGrid.js.
 const { layout } = useDeviceGrid(
-  () => visibleDevices.value.length,
+  () => gridDevices.value.length,
   () => gridRef.value,
 );
 const gridStyle = computed(() => ({

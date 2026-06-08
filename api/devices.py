@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
+# cspell:ignore scrcpyclients
 import scrcpy.scrcpyclients as scrcpy_clients
 from services import (
     app_manager,
@@ -27,6 +28,32 @@ from services import (
 )
 
 bp = Blueprint('device_api', __name__)
+
+
+def _sync_fanout_keyevent(device_id: str, code: int) -> None:
+    """Mirror a quick keyevent to sync-group slaves (experimental, guarded).
+
+    Fully isolated: any failure here must never affect the master's own
+    keyevent response above.
+    """
+    try:
+        from services import sync as _sync
+        if _sync.is_enabled():
+            from services.sync import sync_dispatcher
+            sync_dispatcher.fanout_keyevent(device_id, code)
+    except (ImportError, AttributeError, RuntimeError, OSError, ValueError):
+        pass
+
+
+def _sync_fanout_swipe(device_id: str, direction, duration) -> None:
+    """Mirror a directional swipe to sync-group slaves (experimental, guarded)."""
+    try:
+        from services import sync as _sync
+        if _sync.is_enabled():
+            from services.sync import sync_dispatcher
+            sync_dispatcher.fanout_swipe_direction(device_id, direction, duration)
+    except (ImportError, AttributeError, RuntimeError, OSError, ValueError):
+        pass
 
 
 def _require_owner(device_id: str):
@@ -92,6 +119,7 @@ def device_keyevent_route(device_id: str):
     try:
         from adbutils import adb
         adb.device(device_id).shell(f'input keyevent {code}', timeout=4)
+        _sync_fanout_keyevent(device_id, code)
         return jsonify({'status': 'ok'})
     except (RuntimeError, OSError, TimeoutError) as exc:
         return jsonify({'status': 'failed', 'message': str(exc)}), 500
@@ -117,6 +145,7 @@ def device_swipe_route(device_id: str):
         duration = input_shell.DEFAULT_DURATION_MS
     try:
         input_shell.swipe_direction(device_id, direction, duration)
+        _sync_fanout_swipe(device_id, direction, duration)
         return jsonify({'status': 'ok'})
     except input_shell.InputShellError as exc:
         return jsonify({'status': 'failed', 'message': str(exc)}), 400

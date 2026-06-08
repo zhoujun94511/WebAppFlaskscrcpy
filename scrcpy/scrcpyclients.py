@@ -5,6 +5,8 @@ from pathlib import Path
 
 from adbutils import adb
 
+from config import config
+
 from .scrcpycore import Client
 
 _clients = {}
@@ -53,9 +55,8 @@ def _reconfigure_lock_for(device_id: str):
             _reconfigure_locks[device_id] = lock
         return lock
 SCRCPY_SERVER_REMOTE_PATH = "/data/local/tmp/scrcpy-server.jar"
-SCRCPY_SERVER_LOCAL_PATH = (
-    Path(__file__).resolve().parent.parent / "resources" / "scrcpy-server.jar"
-)
+# Local jar path comes from the central config (single source of truth).
+SCRCPY_SERVER_LOCAL_PATH = Path(config.SCRCPY_SERVER_PATH)
 
 
 def _sha256_file(path: Path):

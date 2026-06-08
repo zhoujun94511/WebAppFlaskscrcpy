@@ -1795,6 +1795,53 @@ details.binding-tools[open] > summary {
   );
 }
 
+/* ─── Lab (实验室) two-column layout ──────────────────────────────────
+   Default (builder): only the control panel, centred — no idle device cards.
+   Active (a sync group exists): panel on the left, member previews on the
+   right filling the freed space; preview cards are capped smaller than the
+   device-page hero cards so they don't dominate / push the layout down. */
+.lab-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  width: 100%;
+}
+.lab-layout:not(.lab-split) {
+  justify-content: center;
+}
+.lab-control {
+  flex: 0 0 auto;
+  width: min(560px, 100%);
+}
+.lab-split .lab-control {
+  width: 380px;
+}
+.lab-preview {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.lab-preview-label {
+  margin: 2px 2px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.device-grid.lab-grid {
+  justify-content: flex-start;
+  min-height: 0;
+}
+.device-grid.lab-grid > .device-card:not(.expanded) {
+  width: clamp(180px, calc(46vh * var(--card-aspect, 0.5)), 280px);
+}
+@media (max-width: 900px) {
+  .lab-layout {
+    flex-direction: column;
+  }
+  .lab-split .lab-control {
+    width: min(560px, 100%);
+  }
+}
+
 /* Screen fills the card width; height comes from the device aspect (set
    inline per-device in DeviceScreen.vue — the 9:16 here is only the
    pre-stream placeholder). ``max-height`` is a backstop for the single-
@@ -3140,22 +3187,19 @@ details.binding-tools[open] > summary {
 .device-card-reservation {
   min-width: 0;
 }
-.device-card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  opacity: 0;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.18), 0 0 0 5px rgba(59, 130, 246, 0);
-  transition: opacity 0.18s ease;
-}
+/* Glow ring is anchored on the device SCREEN, not the whole card, so it
+   precisely tracks the on-screen device shape across card sizes / aspects /
+   chrome variations (header, reservation strip, footer).
+   Implemented as a box-shadow ON the .device-card-screen element itself
+   (not via ::after), because .device-card-screen has overflow:hidden which
+   would otherwise clip a pseudo-element-painted halo. The element's own
+   box-shadow is painted OUTSIDE its border and is NOT subject to its own
+   overflow clip. */
 .device-card:hover {
   border-color: var(--primary-border);
   box-shadow: var(--shadow);
 }
-.device-card:hover::after {
-  opacity: 1;
+.device-card:hover .device-card-screen {
   animation: device-card-glow 1.8s ease-in-out infinite;
 }
 .device-card.active {
@@ -3164,8 +3208,7 @@ details.binding-tools[open] > summary {
     0 0 0 2px var(--primary-ring),
     var(--shadow);
 }
-.device-card.active::after {
-  opacity: 1;
+.device-card.active .device-card-screen {
   animation: device-card-glow 2.2s ease-in-out infinite;
 }
 .device-card.streaming {
