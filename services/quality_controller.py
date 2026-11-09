@@ -110,13 +110,12 @@ class QualityController:
         # 2. After re-enabling default-on, real-device testing showed
         #    "Video header looks bogus" warnings repeating at roughly
         #    the L1 cooldown cadence (8 s). The most plausible cause:
-        #    the bundled scrcpy-server.jar's protocol version doesn't
-        #    actually honour TYPE_RESET_VIDEO the same way upstream
-        #    4.0 does — sending the opcode either confuses its byte
-        #    parser or causes a transient encoder reset that injects
-        #    non-frame bytes into the video socket. The stream
-        #    recovery (``buf.clear()``) keeps working but every reset
-        #    pushes a hard buffer drop on the consuming end.
+        #    an older bundled jar did not honour TYPE_RESET_VIDEO the
+        #    way upstream does. Official scrcpy-server 5.0.1 accepts
+        #    opcode 17 as an empty message and resets the encoder.
+        #    The switch stays off until that path is rechecked on a
+        #    device: a reset still drops the video buffer, and the
+        #    recovery (``buf.clear()``) is visible to the consumer.
         #
         # The L1-L4 machinery stays in the codebase — fully tested,
         # ready to flip back on if/when we ship a known-good jar or

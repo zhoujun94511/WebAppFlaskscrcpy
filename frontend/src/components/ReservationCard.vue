@@ -319,11 +319,6 @@ const onRelease = () => run(() => release(props.deviceId));
   color: var(--text);
   font-size: 0.82rem;
 }
-.reservation-claim-btn {
-  flex: 0 0 auto; /* button keeps its intrinsic width, no full-width bar */
-  padding-left: 18px;
-  padding-right: 18px;
-}
 .reservation-info {
   margin: 0;
   font-size: 0.82rem;
@@ -352,6 +347,12 @@ const onRelease = () => run(() => release(props.deviceId));
   background: var(--primary);
   color: var(--text-on-primary);
   border-color: var(--primary-border);
+}
+.reservation-btn.reservation-claim-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding-left: 18px;
+  padding-right: 18px;
 }
 .reservation-btn.danger {
   background: var(--danger-bg);

@@ -114,9 +114,11 @@ RESERVATION_SWEEP_INTERVAL_SECONDS = _int("RESERVATION_SWEEP_INTERVAL_SECONDS", 
 # ═════════════════════════════════════════════════════════════════════════
 # scrcpy server
 # ═════════════════════════════════════════════════════════════════════════
-# The version string MUST match the bundled jar, or the server refuses the
-# client. Override both together if dropping in a different server build.
-SCRCPY_SERVER_VERSION = _str("SCRCPY_SERVER_VERSION", "4.0")
+# The version string MUST match the jar's BuildConfig.VERSION_NAME, or the
+# server refuses the client. The bundled file is official scrcpy-server
+# v5.0.1; if it is missing or stale, services.scrcpy_server_setup downloads
+# that exact GitHub release asset. Override both together for another build.
+SCRCPY_SERVER_VERSION = _str("SCRCPY_SERVER_VERSION", "5.0.1")
 SCRCPY_SERVER_PATH = _str(
     "SCRCPY_SERVER_PATH", str(ROOT_DIR / "resources" / "scrcpy" / "scrcpy-server.jar")
 )

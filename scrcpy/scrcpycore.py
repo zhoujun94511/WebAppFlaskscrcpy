@@ -24,7 +24,6 @@ from .scrcpyconst import (
     SCRCPY_AUDIO_CODEC,
     SCRCPY_AUDIO_SAMPLE_RATE,
     LOCK_SCREEN_ORIENTATION_UNLOCKED,
-    SCRCPY_SERVER_PATH,
     SCRCPY_SERVER_VERSION,
 )
 from .scrcpycontrol import ControlSender
@@ -429,7 +428,15 @@ class Client:
             return False
 
     def __deploy_server(self) -> bool:
-        server_file_path = SCRCPY_SERVER_PATH
+        # v5.0.1 rejects any client version other than "5.0.1". A missing
+        # or pre-5.0 jar is replaced from that GitHub release before push.
+        try:
+            from services.scrcpy_server_setup import ensure_scrcpy_server
+
+            server_file_path = str(ensure_scrcpy_server())
+        except (OSError, RuntimeError) as exc:
+            _log.error("scrcpy-server.jar is not available: %s", exc)
+            return False
         jar_name = os.path.basename(server_file_path)
         _log.info("==== __deploy_server called ====")
         _log.info(
@@ -453,9 +460,9 @@ class Client:
         # IMPORTANT: keep this option list MINIMAL — pass ONLY options that
         # differ from the scrcpy server's own defaults, exactly like the
         # official scrcpy client does. Restating defaults is not merely
-        # redundant: the scrcpy 4.0 server has a fixed-size native stack
-        # buffer in its argument handling, and a long option list overflows
-        # it on some ROMs. The Samsung SM-G9860 (One UI / Android 13,
+        # redundant: the scrcpy server (including 5.0.1) has a fixed-size
+        # native stack buffer in its argument handling, and a long option
+        # list overflows it on some ROMs. The Samsung SM-G9860 (One UI / Android 13,
         # OMX.qcom.video.encoder.avc) reliably SIGABRTs with
         # "stack corruption detected (-fstack-protector) -> Aborted" the
         # instant we pad the command with default-valued keys
@@ -472,7 +479,7 @@ class Client:
         #   send_frame_meta=true   (we need per-frame PTS/keyframe flags)
         #   send_device_meta=true  (we read the 64-byte device name first)
         #   tunnel_forward=false   (we set up an adb reverse tunnel)
-        #   send_codec_meta is NOT a valid 4.0 option at all — codec metadata
+        #   send_codec_meta is NOT a valid 5.0.1 option at all — codec metadata
         #   is always part of the video header (our 16-byte preamble read).
         commands = [
             f"CLASSPATH=/data/local/tmp/{jar_name}",

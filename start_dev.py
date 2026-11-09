@@ -1,7 +1,7 @@
 r"""One-click dev launcher for WebAppFlaskscrcpy.
 
 Usage:
-    python start_dev.py                      # bind 0.0.0.0, print LAN URLs (default)
+    python start_dev.py                      # bind 0.0.0.0, open the LAN URL (default)
     python start_dev.py start                # same as above
     python start_dev.py stop                 # only free local service ports
     python start_dev.py start --local-only   # bind 127.0.0.1 only (no LAN exposure)
@@ -628,20 +628,30 @@ def start_mode(args: argparse.Namespace) -> int:
         ),
     )
 
-    _print("All services are up.")
-    _print(f"Frontend:  {CLIENT_URL}")
-    _print(f"Backend:   {BACKEND_URL}")
+    # Readiness probes stay on loopback: that path does not depend on the
+    # LAN route. The tab we open, and the URLs printed first, use the LAN
+    # address — this is a device-mirror app, and 127.0.0.1 is only reachable
+    # on this machine. ``--local-only`` keeps both on loopback.
+    open_url = CLIENT_URL
+    backend_display = BACKEND_URL
     if not args.local_only:
         local_ip = _resolve_local_ip()
-        if local_ip:
-            _print(f"Frontend(LAN):  http://{local_ip}:{CLIENT_PORT}")
-            _print(f"Backend(LAN):   http://{local_ip}:{BACKEND_PORT}")
+        if local_ip and local_ip != "127.0.0.1":
+            open_url = f"http://{local_ip}:{CLIENT_PORT}"
+            backend_display = f"http://{local_ip}:{BACKEND_PORT}"
         else:
             _print("LAN binding active, but local IP could not be resolved.")
 
+    _print("All services are up.")
+    _print(f"Frontend:  {open_url}")
+    _print(f"Backend:   {backend_display}")
+    if open_url != CLIENT_URL:
+        _print(f"Frontend(local):  {CLIENT_URL}")
+        _print(f"Backend(local):   {BACKEND_URL}")
+
     if not args.no_browser:
         try:
-            webbrowser.open_new_tab(CLIENT_URL)
+            webbrowser.open_new_tab(open_url)
         except OSError:
             pass
 

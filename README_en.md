@@ -252,6 +252,12 @@ WebAppFlaskscrcpy/
 
 ### Install
 
+Repository: https://github.com/zhoujun94511/WebAppFlaskscrcpy
+
+```bash
+git clone https://github.com/zhoujun94511/WebAppFlaskscrcpy.git
+```
+
 ```bash
 # 1) Backend deps (use a venv)
 python -m venv .venv
@@ -329,27 +335,27 @@ npm run format      # Prettier (npm run format:check to only check)
 
 Key settings:
 
-| Setting                          | Default                          | Description                                                                            |
-|----------------------------------|----------------------------------|----------------------------------------------------------------------------------------|
-| `ENABLE_SYNC`                    | `True`                           | 🧪 Lab: multi-device sync master switch (off → blueprint not registered, fan-out skipped, UI entry hidden) |
-| `ENABLE_WEBRTC`                  | `True`                           | WebRTC signaling toggle                                                                |
-| `ENABLE_TERMINAL`                | `True`                           | Embedded terminal toggle                                                               |
-| `OPEN_BROWSER`                   | `True`                           | Auto-open browser on startup                                                           |
-| `HOST` / `PORT`                  | LAN IP / `5001`                  | Backend bind address / port                                                            |
-| `FLASK_SECRET_KEY`               | random on boot                   | Session cookie signing key; pin in production or every restart invalidates sessions    |
-| `DB_PATH`                        | `data/app.db`                    | SQLite database path                                                                   |
-| `LOG_LEVEL`                      | `INFO`                           | Log level                                                                              |
-| `SESSION_TTL_HOURS`              | `24`                             | Session validity                                                                       |
-| `RESERVATION_*`                  | `240 / 60 / 30 / 10`             | Max / default minutes, grace seconds, sweeper interval seconds                          |
-| `SCRCPY_SERVER_PATH` / `_VERSION` | `resources/scrcpy/...` / `4.0`   | scrcpy-server jar path and version string                                              |
-| `U2_WAIT_TIMEOUT`                | `1.5`                            | 🧪 u2 selector wait timeout (seconds)                                                  |
-| `SYNC_TAP_THROTTLE_MS`           | `250`                            | 🧪 Semantic-tap throttle interval (anti dump-storm)                                    |
-| `SYNC_MAX_CONCURRENCY`           | `8`                              | 🧪 Concurrent slave fan-out cap                                                        |
-| `SYNC_LOG_PATH/MAX_BYTES/BACKUP_COUNT` | `logs/sync.log` / 2 MB / 3 | 🧪 Sync stream log (rotating)                                                          |
-| `SYNC_FAILURE_CAPTURE`           | `True`                           | 🧪 Whether to capture screenshot + UI XML + JSON on total failure                      |
-| `SYNC_FAILURE_DIR`               | `data/sync_failures`             | 🧪 Evidence directory                                                                  |
-| `SYNC_FAILURE_RETENTION_DAYS`    | `14`                             | 🧪 Evidence retention days (cleanup triggered off capture, throttled hourly)           |
-| `SYNC_SWIPE_MIN_PX` / `SYNC_SWIPE_DEFAULT_MS` | `24` / `200`        | 🧪 Min displacement to count as a swipe in semantic mode / default swipe duration       |
+| Setting                                       | Default                        | Description                                                                                                |
+|-----------------------------------------------|--------------------------------|------------------------------------------------------------------------------------------------------------|
+| `ENABLE_SYNC`                                 | `True`                         | 🧪 Lab: multi-device sync master switch (off → blueprint not registered, fan-out skipped, UI entry hidden) |
+| `ENABLE_WEBRTC`                               | `True`                         | WebRTC signaling toggle                                                                                    |
+| `ENABLE_TERMINAL`                             | `True`                         | Embedded terminal toggle                                                                                   |
+| `OPEN_BROWSER`                                | `True`                         | Auto-open browser on startup                                                                               |
+| `HOST` / `PORT`                               | LAN IP / `5001`                | Backend bind address / port                                                                                |
+| `FLASK_SECRET_KEY`                            | random on boot                 | Session cookie signing key; pin in production or every restart invalidates sessions                        |
+| `DB_PATH`                                     | `data/app.db`                  | SQLite database path                                                                                       |
+| `LOG_LEVEL`                                   | `INFO`                         | Log level                                                                                                  |
+| `SESSION_TTL_HOURS`                           | `24`                           | Session validity                                                                                           |
+| `RESERVATION_*`                               | `240 / 60 / 30 / 10`           | Max / default minutes, grace seconds, sweeper interval seconds                                             |
+| `SCRCPY_SERVER_PATH` / `_VERSION`             | `resources/scrcpy/...` / `5.0.1` | scrcpy-server jar path and version; missing jar is downloaded from the v5.0.1 release                     |
+| `U2_WAIT_TIMEOUT`                             | `1.5`                          | 🧪 u2 selector wait timeout (seconds)                                                                      |
+| `SYNC_TAP_THROTTLE_MS`                        | `250`                          | 🧪 Semantic-tap throttle interval (anti dump-storm)                                                        |
+| `SYNC_MAX_CONCURRENCY`                        | `8`                            | 🧪 Concurrent slave fan-out cap                                                                            |
+| `SYNC_LOG_PATH/MAX_BYTES/BACKUP_COUNT`        | `logs/sync.log` / 2 MB / 3     | 🧪 Sync stream log (rotating)                                                                              |
+| `SYNC_FAILURE_CAPTURE`                        | `True`                         | 🧪 Whether to capture screenshot + UI XML + JSON on total failure                                          |
+| `SYNC_FAILURE_DIR`                            | `data/sync_failures`           | 🧪 Evidence directory                                                                                      |
+| `SYNC_FAILURE_RETENTION_DAYS`                 | `14`                           | 🧪 Evidence retention days (cleanup triggered off capture, throttled hourly)                               |
+| `SYNC_SWIPE_MIN_PX` / `SYNC_SWIPE_DEFAULT_MS` | `24` / `200`                   | 🧪 Min displacement to count as a swipe in semantic mode / default swipe duration                          |
 
 ## Security Design
 
@@ -409,18 +415,18 @@ Key settings:
 
 ### 🧪 Lab · Multi-device sync (`/api/sync-groups*`, `/api/devices/<id>/u2/*`, only when `ENABLE_SYNC=True`)
 
-| Method | Path                                       | Access            | Description                                                                                                |
-|--------|--------------------------------------------|-------------------|------------------------------------------------------------------------------------------------------------|
-| GET    | `/api/sync-groups`                         | auth              | List sync groups (admins see all, users see their own) + live status snapshot                              |
-| POST   | `/api/sync-groups`                         | auth              | Create a group: `{master_device_id, slave_device_ids[], mode, sync_touch/keyevent/text}`, batch-reserves master + slaves |
-| DELETE | `/api/sync-groups/<group_id>`              | owner / admin     | Dissolve the group, releases the slaves (master stays reserved)                                            |
-| POST   | `/api/sync-groups/<group_id>/enable`       | owner / admin     | Enable sync                                                                                                |
-| POST   | `/api/sync-groups/<group_id>/disable`      | owner / admin     | Pause sync                                                                                                 |
-| POST   | `/api/sync-groups/precheck`                | auth              | Builder pre-flight: `{device_ids[]}` → per-device `online / reserved_by_me / reserved_by_other / in_group` |
-| GET    | `/api/devices/<id>/u2/ping`                | reservation owner | uiautomator2 connectivity + window size + current app (first call pushes `u2.jar` to the device)           |
-| GET    | `/api/devices/<id>/u2/hierarchy`           | reservation owner | Current UI hierarchy XML (debug)                                                                           |
-| POST   | `/api/devices/<id>/u2/inspect`             | reservation owner | `{x,y}` → resolve the control at that point to a selector (resourceId / text / xpath / bounds)             |
-| POST   | `/api/devices/<id>/u2/semantic`            | reservation owner | `{x,y}` → preview the semantic event that tap would produce (mode + selector + coordinate fallback)        |
+| Method | Path                                  | Access            | Description                                                                                                              |
+|--------|---------------------------------------|-------------------|--------------------------------------------------------------------------------------------------------------------------|
+| GET    | `/api/sync-groups`                    | auth              | List sync groups (admins see all, users see their own) + live status snapshot                                            |
+| POST   | `/api/sync-groups`                    | auth              | Create a group: `{master_device_id, slave_device_ids[], mode, sync_touch/keyevent/text}`, batch-reserves master + slaves |
+| DELETE | `/api/sync-groups/<group_id>`         | owner / admin     | Dissolve the group, releases the slaves (master stays reserved)                                                          |
+| POST   | `/api/sync-groups/<group_id>/enable`  | owner / admin     | Enable sync                                                                                                              |
+| POST   | `/api/sync-groups/<group_id>/disable` | owner / admin     | Pause sync                                                                                                               |
+| POST   | `/api/sync-groups/precheck`           | auth              | Builder pre-flight: `{device_ids[]}` → per-device `online / reserved_by_me / reserved_by_other / in_group`               |
+| GET    | `/api/devices/<id>/u2/ping`           | reservation owner | uiautomator2 connectivity + window size + current app (first call pushes `u2.jar` to the device)                         |
+| GET    | `/api/devices/<id>/u2/hierarchy`      | reservation owner | Current UI hierarchy XML (debug)                                                                                         |
+| POST   | `/api/devices/<id>/u2/inspect`        | reservation owner | `{x,y}` → resolve the control at that point to a selector (resourceId / text / xpath / bounds)                           |
+| POST   | `/api/devices/<id>/u2/semantic`       | reservation owner | `{x,y}` → preview the semantic event that tap would produce (mode + selector + coordinate fallback)                      |
 
 ### Socket.IO events
 - WebRTC signaling: `webrtc:offer` / `webrtc:ice` / `webrtc:close` (→ `webrtc:answer` / `webrtc:ice` / `webrtc:closed`)
@@ -473,3 +479,6 @@ Coverage: full account chain (register/login/logout/check-auth), password policy
 ---
 
 To apply the rate-limit decorator to more endpoints, tune lockout thresholds / reservation durations, or extend role permissions, the rules are already factored into reusable modules (`services/validators.py`, `services/rate_limit.py`) — change them in one place, and it takes effect everywhere.
+
+- **Project**: https://github.com/zhoujun94511/WebAppFlaskscrcpy
+- **Issues**: https://github.com/zhoujun94511/WebAppFlaskscrcpy/issues

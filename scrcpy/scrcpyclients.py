@@ -6,6 +6,7 @@ from pathlib import Path
 from adbutils import adb
 
 from config import config
+from services import scrcpy_server_setup
 
 from .scrcpycore import Client
 
@@ -74,13 +75,23 @@ def get_devices():
 
 
 def get_local_server_info():
-    exists = SCRCPY_SERVER_LOCAL_PATH.exists()
-    return {
-        "path": str(SCRCPY_SERVER_LOCAL_PATH),
+    error = None
+    path = SCRCPY_SERVER_LOCAL_PATH
+    try:
+        path = scrcpy_server_setup.ensure_scrcpy_server()
+    except (OSError, RuntimeError) as exc:
+        error = str(exc)
+    exists = path.exists()
+    info = {
+        "path": str(path),
         "exists": exists,
-        "size": SCRCPY_SERVER_LOCAL_PATH.stat().st_size if exists else None,
-        "sha256": _sha256_file(SCRCPY_SERVER_LOCAL_PATH),
+        "version": config.SCRCPY_SERVER_VERSION,
+        "size": path.stat().st_size if exists else None,
+        "sha256": _sha256_file(path),
     }
+    if error:
+        info["error"] = error
+    return info
 
 
 # TTL cache for the per-device scrcpy-server jar fingerprint. The frontend
@@ -151,10 +162,12 @@ def get_remote_server_info(device_id):
 
 
 def push_server_to_device(device_id):
-    if not SCRCPY_SERVER_LOCAL_PATH.exists():
-        return False, f"missing local jar: {SCRCPY_SERVER_LOCAL_PATH}"
+    try:
+        local_path = scrcpy_server_setup.ensure_scrcpy_server()
+    except (OSError, RuntimeError) as exc:
+        return False, str(exc)
     device = adb.device(device_id)
-    device.sync.push(str(SCRCPY_SERVER_LOCAL_PATH), SCRCPY_SERVER_REMOTE_PATH)
+    device.sync.push(str(local_path), SCRCPY_SERVER_REMOTE_PATH)
     # The remote jar just changed — drop any cached fingerprint so the
     # next health check fetches the new sha256 instead of returning stale.
     _invalidate_remote_server_info(device_id)

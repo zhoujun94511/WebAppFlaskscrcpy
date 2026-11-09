@@ -271,6 +271,12 @@ WebAppFlaskscrcpy/
 
 ### 安装
 
+仓库地址：https://github.com/zhoujun94511/WebAppFlaskscrcpy
+
+```bash
+git clone https://github.com/zhoujun94511/WebAppFlaskscrcpy.git
+```
+
 ```bash
 # 1) 后端依赖（建议虚拟环境）
 python -m venv .venv
@@ -348,27 +354,27 @@ npm run format      # Prettier 格式化（npm run format:check 仅检查）
 
 主要配置项：
 
-| 配置项                           | 默认                          | 说明                                                |
-|-------------------------------|-----------------------------|---------------------------------------------------|
-| `ENABLE_SYNC`                 | `True`                      | 🧪 实验室：多机主从同步总开关（关闭则蓝图不注册、扇出不生效、前端隐藏入口）         |
-| `ENABLE_WEBRTC`               | `True`                      | WebRTC 信令开关                                       |
-| `ENABLE_TERMINAL`             | `True`                      | 内嵌终端开关                                            |
-| `OPEN_BROWSER`                | `True`                      | 启动后是否自动开浏览器                                       |
-| `HOST` / `PORT`               | LAN IP / `5001`             | 后端绑定地址 / 端口                                       |
-| `FLASK_SECRET_KEY`            | 启动随机                        | 会话 Cookie 签名密钥；生产务必固定，否则重启失效全部会话                  |
-| `DB_PATH`                     | `data/app.db`               | SQLite 数据库路径                                      |
-| `LOG_LEVEL`                   | `INFO`                      | 日志级别                                              |
-| `SESSION_TTL_HOURS`           | `24`                        | 会话有效期                                             |
-| `RESERVATION_*`               | `240/60/30/10`              | 占用最长 / 默认 / 宽限秒 / 清扫间隔秒                           |
-| `SCRCPY_SERVER_PATH`/`_VERSION` | `resources/scrcpy/...` / `4.0` | scrcpy server jar 路径与版本号                          |
-| `U2_WAIT_TIMEOUT`             | `1.5`                       | 🧪 u2 选择器等待超时（秒）                                  |
-| `SYNC_TAP_THROTTLE_MS`        | `250`                       | 🧪 语义 tap 节流间隔（防 dump 风暴）                         |
-| `SYNC_MAX_CONCURRENCY`        | `8`                         | 🧪 每次扇出的从机并发上限                                    |
-| `SYNC_LOG_PATH/MAX_BYTES/BACKUP_COUNT` | `logs/sync.log` / 2MB / 3 | 🧪 同步流水日志（滚动）                                     |
-| `SYNC_FAILURE_CAPTURE`        | `True`                      | 🧪 彻底失败时是否抓取截图 + UI XML + JSON                    |
-| `SYNC_FAILURE_DIR`            | `data/sync_failures`        | 🧪 留证目录                                           |
-| `SYNC_FAILURE_RETENTION_DAYS` | `14`                        | 🧪 留证保留天数（按 capture 触发节流清理）                       |
-| `SYNC_SWIPE_MIN_PX` / `SYNC_SWIPE_DEFAULT_MS` | `24` / `200`     | 🧪 语义模式下识别滑动的最小位移 / swipe 默认时长                    |
+| 配置项                                           | 默认                             | 说明                                      |
+|-----------------------------------------------|--------------------------------|-----------------------------------------|
+| `ENABLE_SYNC`                                 | `True`                         | 🧪 实验室：多机主从同步总开关（关闭则蓝图不注册、扇出不生效、前端隐藏入口） |
+| `ENABLE_WEBRTC`                               | `True`                         | WebRTC 信令开关                             |
+| `ENABLE_TERMINAL`                             | `True`                         | 内嵌终端开关                                  |
+| `OPEN_BROWSER`                                | `True`                         | 启动后是否自动开浏览器                             |
+| `HOST` / `PORT`                               | LAN IP / `5001`                | 后端绑定地址 / 端口                             |
+| `FLASK_SECRET_KEY`                            | 启动随机                           | 会话 Cookie 签名密钥；生产务必固定，否则重启失效全部会话        |
+| `DB_PATH`                                     | `data/app.db`                  | SQLite 数据库路径                            |
+| `LOG_LEVEL`                                   | `INFO`                         | 日志级别                                    |
+| `SESSION_TTL_HOURS`                           | `24`                           | 会话有效期                                   |
+| `RESERVATION_*`                               | `240/60/30/10`                 | 占用最长 / 默认 / 宽限秒 / 清扫间隔秒                 |
+| `SCRCPY_SERVER_PATH`/`_VERSION`               | `resources/scrcpy/...` / `5.0.1` | scrcpy server jar 路径与版本号；缺失时从 v5.0.1 Release 下载 |
+| `U2_WAIT_TIMEOUT`                             | `1.5`                          | 🧪 u2 选择器等待超时（秒）                        |
+| `SYNC_TAP_THROTTLE_MS`                        | `250`                          | 🧪 语义 tap 节流间隔（防 dump 风暴）               |
+| `SYNC_MAX_CONCURRENCY`                        | `8`                            | 🧪 每次扇出的从机并发上限                          |
+| `SYNC_LOG_PATH/MAX_BYTES/BACKUP_COUNT`        | `logs/sync.log` / 2MB / 3      | 🧪 同步流水日志（滚动）                           |
+| `SYNC_FAILURE_CAPTURE`                        | `True`                         | 🧪 彻底失败时是否抓取截图 + UI XML + JSON          |
+| `SYNC_FAILURE_DIR`                            | `data/sync_failures`           | 🧪 留证目录                                 |
+| `SYNC_FAILURE_RETENTION_DAYS`                 | `14`                           | 🧪 留证保留天数（按 capture 触发节流清理）             |
+| `SYNC_SWIPE_MIN_PX` / `SYNC_SWIPE_DEFAULT_MS` | `24` / `200`                   | 🧪 语义模式下识别滑动的最小位移 / swipe 默认时长          |
 
 ## 安全设计
 
@@ -428,18 +434,18 @@ npm run format      # Prettier 格式化（npm run format:check 仅检查）
 
 ### 🧪 实验室 · 多机同步（`/api/sync-groups*`、`/api/devices/<id>/u2/*`，仅当 `ENABLE_SYNC=True`）
 
-| 方法     | 路径                                       | 权限          | 说明                                                       |
-|--------|------------------------------------------|-------------|----------------------------------------------------------|
-| GET    | `/api/sync-groups`                       | 登录          | 列出同步组（管理员看全部，普通用户只看自己的）+ 实时状态快照                          |
-| POST   | `/api/sync-groups`                       | 登录          | 建组：`{master_device_id, slave_device_ids[], mode, sync_touch/keyevent/text}`，批量占用主机+从机 |
-| DELETE | `/api/sync-groups/<group_id>`            | 组主 / 管理员   | 解散组并释放从机（保留主机占用）                                         |
-| POST   | `/api/sync-groups/<group_id>/enable`     | 组主 / 管理员   | 启用同步                                                     |
-| POST   | `/api/sync-groups/<group_id>/disable`    | 组主 / 管理员   | 暂停同步                                                     |
-| POST   | `/api/sync-groups/precheck`              | 登录          | 建组前预检：`{device_ids[]}` → 每台返回 `online / reserved_by_me / reserved_by_other / in_group` |
-| GET    | `/api/devices/<id>/u2/ping`              | 占用归属        | uiautomator2 连通性 + 窗口尺寸 + 当前 App（首次会推送 u2.jar 到设备）        |
-| GET    | `/api/devices/<id>/u2/hierarchy`         | 占用归属        | 当前 UI 层级 XML（用于调试）                                       |
-| POST   | `/api/devices/<id>/u2/inspect`           | 占用归属        | `{x,y}` → 反查该坐标处的控件 selector（resourceId/text/xpath/bounds） |
-| POST   | `/api/devices/<id>/u2/semantic`          | 占用归属        | `{x,y}` → 预览该 tap 会产生的语义事件（mode + selector + 坐标兜底）        |
+| 方法     | 路径                                    | 权限       | 说明                                                                                     |
+|--------|---------------------------------------|----------|----------------------------------------------------------------------------------------|
+| GET    | `/api/sync-groups`                    | 登录       | 列出同步组（管理员看全部，普通用户只看自己的）+ 实时状态快照                                                        |
+| POST   | `/api/sync-groups`                    | 登录       | 建组：`{master_device_id, slave_device_ids[], mode, sync_touch/keyevent/text}`，批量占用主机+从机  |
+| DELETE | `/api/sync-groups/<group_id>`         | 组主 / 管理员 | 解散组并释放从机（保留主机占用）                                                                       |
+| POST   | `/api/sync-groups/<group_id>/enable`  | 组主 / 管理员 | 启用同步                                                                                   |
+| POST   | `/api/sync-groups/<group_id>/disable` | 组主 / 管理员 | 暂停同步                                                                                   |
+| POST   | `/api/sync-groups/precheck`           | 登录       | 建组前预检：`{device_ids[]}` → 每台返回 `online / reserved_by_me / reserved_by_other / in_group` |
+| GET    | `/api/devices/<id>/u2/ping`           | 占用归属     | uiautomator2 连通性 + 窗口尺寸 + 当前 App（首次会推送 u2.jar 到设备）                                     |
+| GET    | `/api/devices/<id>/u2/hierarchy`      | 占用归属     | 当前 UI 层级 XML（用于调试）                                                                     |
+| POST   | `/api/devices/<id>/u2/inspect`        | 占用归属     | `{x,y}` → 反查该坐标处的控件 selector（resourceId/text/xpath/bounds）                             |
+| POST   | `/api/devices/<id>/u2/semantic`       | 占用归属     | `{x,y}` → 预览该 tap 会产生的语义事件（mode + selector + 坐标兜底）                                     |
 
 ### Socket.IO 事件
 - WebRTC 信令：`webrtc:offer` / `webrtc:ice` / `webrtc:close`（→ `webrtc:answer` / `webrtc:ice` / `webrtc:closed`）
@@ -492,3 +498,6 @@ python tests/test_sync_chain.py
 ---
 
 如需把限流装饰器挂到更多接口、调整锁定阈值/占用时长、或扩展角色权限，相关规则均已抽成可复用模块（`services/validators.py`、`services/rate_limit.py`），改一处即可全局生效。
+
+- **项目主页**：https://github.com/zhoujun94511/WebAppFlaskscrcpy
+- **问题反馈**：https://github.com/zhoujun94511/WebAppFlaskscrcpy/issues

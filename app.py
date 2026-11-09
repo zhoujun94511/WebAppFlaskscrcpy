@@ -35,6 +35,14 @@ from services import adb_bootstrap
 
 adb_bootstrap.ensure_adb()
 
+# Official scrcpy-server v5.0.1. A matching jar is reused; a missing or
+# stale jar is fetched from the v5.0.1 GitHub release in the background.
+# Push / stream start call the same helper and wait if the download is
+# still running.
+from services import scrcpy_server_setup
+
+scrcpy_server_setup.schedule_prepare()
+
 # Adaptive anti-mosaic controller. The heal loop reverts L2/L3 tightened
 # tunables after a sustained healthy window. Cheap (~ one dict scan every
 # 10 s), starting it unconditionally keeps the wiring simple.

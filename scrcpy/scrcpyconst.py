@@ -8,7 +8,7 @@ from config import config
 # configured centrally in ``config/config.py`` (SCRCPY_SERVER_VERSION /
 # SCRCPY_SERVER_PATH) so you can drop in a different server build (e.g. the
 # official Genymobile/scrcpy-server) WITHOUT editing code here.
-# The version MUST match the jar.
+# The version MUST match the jar (scrcpy-server v5.0.1 → "5.0.1").
 SCRCPY_SERVER_VERSION = config.SCRCPY_SERVER_VERSION
 SCRCPY_SERVER_PATH = config.SCRCPY_SERVER_PATH
 SCRCPY_AUDIO_ENABLED = True
